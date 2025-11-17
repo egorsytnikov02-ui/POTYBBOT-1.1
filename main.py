@@ -127,13 +127,13 @@ def save_scores(chat_id, new_score):
         logger.error(f"Ошибка записи очков {chat_id}: {e}")
 
 def get_rank_name(xp):
-    if xp < 40:
+    if xp < 10:
         return "ПОРОХОБОТИ 🍫"
-    elif 40 <= xp < 80:
+    elif 10 <= xp < 20:
         return "ПОТУЖНІ ГРОМАДЯНИ 💪"
-    elif 80 <= xp < 120:
+    elif 20 <= xp < 30:
         return "СХІДНЯКИ 🌅"
-    elif 120 <= xp < 200:
+    elif 30 <= xp < 50:
         return "ХАРАКТЕРНИКИ ⚔️"
     else:
         return "ЗЕЛЕБОБИ 🟢"
