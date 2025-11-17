@@ -1,189 +1,114 @@
+import asyncio
 import logging
-import os
-import re
-import datetime
-import pytz
-import random 
-
-from threading import Thread
-from flask import Flask
-
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command
+from aiogram.types import Message
 from upstash_redis import Redis
 
-from telegram import Update
-from telegram.ext import Application, MessageHandler, ContextTypes, filters, JobQueue
-from telegram.constants import ParseMode
+# --- НАСТРОЙКИ (Вставь свои данные) ---
+TOKEN = "ТВОЙ_ТОКЕН_ТЕЛЕГРАМ"
+UPSTASH_URL = "ТВОЙ_UPSTASH_URL"
+UPSTASH_TOKEN = "ТВОЙ_UPSTASH_TOKEN"
 
-# --- Настройки бота ---
-TOKEN = os.environ.get('TOKEN')
-UPSTASH_URL = os.environ.get('UPSTASH_REDIS_REST_URL')
-UPSTASH_TOKEN = os.environ.get('UPSTASH_REDIS_REST_TOKEN')
+# Инициализация базы данных и бота
+redis = Redis(url=UPSTASH_URL, token=UPSTASH_TOKEN)
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
 
-# --- Подключение к Redis ---
-try:
-    redis = Redis(url=UPSTASH_URL, token=UPSTASH_TOKEN)
-    logger = logging.getLogger(__name__)
-    logger.info("Успешное подключение к Upstash (Redis)!")
-except Exception as e:
-    print(f"Критическая ошибка: Не удалось подключиться к Upstash (Redis)! {e}")
-    exit()
-
-# --- Веб-сервер ---
-app = Flask('')
-@app.route('/')
-def home():
-    return "TEST BOT IS ALIVE"
-
-def run_web_server():
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
-
-# --- Логика бота ---
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-
-# 🛡 БЕЗОПАСНОСТЬ: База данных для ТЕСТА
-SCORES_KEY = "test_scores"
-
-# ⭐️ ГИФКА ДЛЯ РЕАКЦИИ НА ОТВЕТ ⭐️
-REPLY_GIF_ID = 'CgACAgIAAyEFAATIovxHAAIBSmkbMaIuOb-D2BxGZdpSf03s1IDcAAJAgwACSL3ZSLtCpogi_5_INgQ'
-
-# ⭐️ ТЕСТОВЫЕ СПИСКИ (Заглушки, пока ты не добавишь свои)
-POSITIVE_GIF_IDS = ['PLACEHOLDER']
-NEGATIVE_GIF_IDS = ['PLACEHOLDER']
-MORNING_GIF_IDS = ['PLACEHOLDER']
-EVENING_GIF_IDS = ['PLACEHOLDER']
-
-# --- Работа с БД ---
-def load_scores(chat_id):
-    try:
-        score = redis.hget(SCORES_KEY, chat_id)
-        if score is None: return 0
-        return int(score)
-    except Exception as e:
-        logger.error(f"DB Error (Load): {e}")
-        return 0
-
-def save_scores(chat_id, new_score):
-    try:
-        redis.hset(SCORES_KEY, chat_id, str(new_score))
-    except Exception as e:
-        logger.error(f"DB Error (Save): {e}")
-
-# --- Помощник для ID ---
-async def show_gif_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.animation:
-        file_id = update.message.animation.file_id
-        await update.message.reply_text(
-            f"<b>ID для коду:</b>\n<code>{file_id}</code>",
-            parse_mode=ParseMode.HTML
+# --- КОНФИГУРАЦИЯ РАНГОВ ---
+# Тексты поздравлений при достижении уровней
+RANK_THRESHOLDS = {
+    40: {
+        "title": "ПОТУЖНІ ГРОМАДЯНИ 💪",
+        "msg": (
+            "Відчуваєте цей приплив сили? Армія, Мова, Віра і Ваші повідомлення! "
+            "Вітаємо, тепер Ви — **ПОТУЖНІ ГРОМАДЯНИ** 💪. Тримайте стрій, спільнота!"
         )
+    },
+    80: {
+        "title": "СХІДНЯКИ 🌅",
+        "msg": (
+            "Цей чат пройшов горнило і вогонь. Тут більше немає слабких чи випадкових. "
+            "Тепер Ви — **СХІДНЯКИ** 🌅. Сонце встає там, де вирішить ваша більшість!"
+        )
+    },
+    120: {
+        "title": "ХАРАКТЕРНИКИ ⚔️",
+        "msg": (
+            "Вашу єдність не беруть ні кулі, ні бани. Ви разом вийшли за межі реальності "
+            "і бачите майбутнє. Тепер Ви — **ХАРАКТЕРНИКИ** ⚔️. Цей чат офіційно зачарований!"
+        )
+    },
+    200: {
+        "title": "ЗЕЛЕБОБИ 🟢",
+        "msg": (
+            "Увага! Це кінець епохи бідності (на активність). Ви зробили це разом! "
+            "Всі на стадіон! Ви — **ЗЕЛЕБОБИ** 🟢. Ви тут влада, і це ваш чат!"
+        )
+    }
+}
 
-# --- Рассылки ---
-async def send_evening_message(context: ContextTypes.DEFAULT_TYPE):
-    try:
-        all_chats = redis.hgetall(SCORES_KEY)
-        if not all_chats: return
-    except: return
-    text = "Тест вечір: Як справи?"
-    for chat_id in all_chats.keys():
-        try:
-            gif_id = random.choice(EVENING_GIF_IDS)
-            await context.bot.send_animation(chat_id=chat_id, animation=gif_id, caption=text)
-        except:
-            try: await context.bot.send_message(chat_id=chat_id, text=text)
-            except: pass
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 
-async def send_morning_message(context: ContextTypes.DEFAULT_TYPE):
-    try:
-        all_chats = redis.hgetall(SCORES_KEY)
-        if not all_chats: return
-    except: return
-    text = "Тест ранок: Прокидаємось!"
-    for chat_id in all_chats.keys():
-        try:
-            gif_id = random.choice(MORNING_GIF_IDS)
-            await context.bot.send_animation(chat_id=chat_id, animation=gif_id, caption=text)
-        except:
-            try: await context.bot.send_message(chat_id=chat_id, text=text)
-            except: pass
-
-# --- ⭐️ ОБРАБОТЧИК СООБЩЕНИЙ (С ЛОГИКОЙ ОТВЕТА) ⭐️ ---
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message: return # Если сообщения нет (редкий случай)
-    
-    message_text = ""
-    if update.message.text:
-        message_text = update.message.text.strip()
-    
-    chat_id = str(update.message.chat_id) 
-
-    # 1. ПРОВЕРКА: Это изменение очков (+/-)?
-    match = re.search(r'([+-])\s*(\d+)', message_text)
-    if match:
-        operator = match.group(1)
-        try: value = int(match.group(2))
-        except ValueError: return
-
-        current_score = load_scores(chat_id) 
-        if operator == '+': 
-            new_score = current_score + value
-            gif_id = random.choice(POSITIVE_GIF_IDS)
-        else: 
-            new_score = current_score - value
-            gif_id = random.choice(NEGATIVE_GIF_IDS)
-
-        save_scores(chat_id, new_score) 
-
-        try:
-            await update.message.reply_animation(
-                animation=gif_id,
-                caption=f"🧪 Тест: <code>{new_score}</code>",
-                parse_mode=ParseMode.HTML
-            )
-        except Exception as e:
-            await update.message.reply_text(f"🧪 Тест: <code>{new_score}</code>", parse_mode=ParseMode.HTML)
-        
-        return # 👈 Если это были очки, выходим, чтобы не спамить лишний раз
-
-    # 2. ⭐️ ПРОВЕРКА: ЭТО ОТВЕТ (REPLY) НА СООБЩЕНИЕ БОТА? ⭐️
-    # Проверяем: есть ли reply, и является ли автор исходного сообщения (from_user.id) самим ботом (context.bot.id)
-    if update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
-        try:
-            # Отправляем твою спец-гифку
-            await update.message.reply_animation(
-                animation=REPLY_GIF_ID,
-                caption="👀" # Можно добавить подпись или оставить пустым
-            )
-        except Exception as e:
-            logger.error(f"Не удалось отправить гифку на реплай: {e}")
-
-# --- Запуск ---
-def main_bot():
-    job_queue = JobQueue()
-    application = Application.builder().token(TOKEN).job_queue(job_queue).build()
-    UKRAINE_TZ = pytz.timezone('Europe/Kyiv')
-    
-    job_queue.run_daily(send_evening_message, time=datetime.time(hour=20, minute=0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
-    job_queue.run_daily(send_morning_message, time=datetime.time(hour=8, minute=0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
-
-    # Обработчики (ТЕКСТ + СТИКЕРЫ + ФОТО - чтобы реагировал на любой ответ)
-    # filters.ALL ловит всё, но мы фильтруем внутри функции
-    application.add_handler(MessageHandler(filters.TEXT | filters.Sticker.ALL | filters.PHOTO, handle_message))
-    
-    application.add_handler(MessageHandler(filters.ANIMATION, show_gif_id))
-
-    print("TEST BOT (REPLY MODE) запущен...")
-    application.run_polling()
-
-if __name__ == '__main__':
-    if not TOKEN or not UPSTASH_URL or not UPSTASH_TOKEN:
-        print("КРИТИЧЕСКАЯ ОШИБКА: Нет токенов!")
+def get_current_rank_name(xp: int) -> str:
+    """Определяет название ранга по количеству XP"""
+    if xp < 40:
+        return "ПОРОХОБОТИ 🍫"
+    elif 40 <= xp < 80:
+        return "ПОТУЖНІ ГРОМАДЯНИ 💪"
+    elif 80 <= xp < 120:
+        return "СХІДНЯКИ 🌅"
+    elif 120 <= xp < 200:
+        return "ХАРАКТЕРНИКИ ⚔️"
     else:
-        print("Запуск веб-сервера...")
-        server_thread = Thread(target=run_web_server)
-        server_thread.daemon = True 
-        server_thread.start()
+        return "ЗЕЛЕБОБИ 🟢"
 
-        main_bot()
+# --- ХЕНДЛЕРЫ (ОБРАБОТЧИКИ) ---
+
+@dp.message(Command("start"))
+async def cmd_start(message: Message):
+    await message.answer("Бот ПОТУЖНИЙ на зв'язку. Працюємо.")
+
+# Команда /status - узнать уровень чата
+@dp.message(Command("status"))
+async def cmd_status(message: Message):
+    chat_id = message.chat.id
+    # Получаем XP из базы (если нет, будет 0)
+    xp_raw = redis.get(f"chat:{chat_id}:xp")
+    xp = int(xp_raw) if xp_raw else 0
+    
+    rank_name = get_current_rank_name(xp)
+    
+    await message.answer(
+        f"📊 **Статистика спільноти**\n\n"
+        f"💬 Рахунок: **{xp}**\n"
+        f"🏆 Ранг: **{rank_name}**",
+        parse_mode="Markdown"
+    )
+
+# Если нужно сохранить функцию с ID гифок (о которой ты просил ранее)
+@dp.message(F.animation)
+async def get_gif_id(message: Message):
+    # Отправляем ID гифки (для твоих нужд)
+    await message.reply(f"ID цієї гіфки: `{message.animation.file_id}`", parse_mode="Markdown")
+    # Гифки тоже считаем за активность, переходим к начислению XP
+    await process_xp(message)
+
+# Обработка ВСЕХ остальных сообщений (текст, фото и т.д.)
+@dp.message()
+async def handle_all_messages(message: Message):
+    await process_xp(message)
+
+# --- ЛОГИКА НАЧИСЛЕНИЯ ОПЫТА ---
+async def process_xp(message: Message):
+    # Работаем только в группах (не в личке)
+    if message.chat.type not in ["group", "supergroup"]:
+        return
+
+    chat_id = message.chat.id
+    
+    # Увеличиваем счетчик в базе Upstash на +1
+    # redis.incr возвращает новое значение сразу после увеличения
+    new_xp = redis.incr(f"chat:{chat_id}:xp")
+
+    # Проверяем
