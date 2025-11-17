@@ -1,0 +1,5 @@
+python-telegram-bot[jobqueue]
+flask
+pytz
+upstash-redis
+APScheduler
