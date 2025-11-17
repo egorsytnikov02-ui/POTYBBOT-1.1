@@ -6,7 +6,7 @@ from aiogram.types import Message
 from upstash_redis import Redis
 
 # --- НАСТРОЙКИ (Вставь свои данные) ---
-TOKEN = "ТВОЙ_ТОКЕН_ТЕЛЕГРАМ"
+BOT_TOKEN = "ТВОЙ_ТОКЕН_ТЕЛЕГРАМ"
 UPSTASH_URL = "ТВОЙ_UPSTASH_URL"
 UPSTASH_TOKEN = "ТВОЙ_UPSTASH_TOKEN"
 
@@ -111,4 +111,17 @@ async def process_xp(message: Message):
     # redis.incr возвращает новое значение сразу после увеличения
     new_xp = redis.incr(f"chat:{chat_id}:xp")
 
-    # Проверяем
+    # Проверяем, достигли ли мы порога (40, 80, 120, 200)
+    if new_xp in RANK_THRESHOLDS:
+        config = RANK_THRESHOLDS[new_xp]
+        # Отправляем торжественное сообщение
+        await message.answer(config["msg"], parse_mode="Markdown")
+
+# --- ЗАПУСК ---
+async def main():
+    logging.basicConfig(level=logging.INFO)
+    print("Bot is running...")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
