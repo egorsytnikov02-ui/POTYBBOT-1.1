@@ -188,12 +188,12 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML
     )
 
-# 2. ⭐️ НОВАЯ КОМАНДА: /reset (Только для админов) ⭐️
+# 2. ⭐️ КОМАНДА /reset (ПОЛНЫЙ СБРОС) ⭐️
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     
-    # Проверка прав: только админы или создатель
+    # Проверка прав
     try:
         member = await chat.get_member(user.id)
         if member.status not in ['creator', 'administrator']:
@@ -203,18 +203,27 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Ошибка проверки прав: {e}")
         return
 
-    # Обнуление
     chat_id = str(chat.id)
+    
+    # 1. Сбрасываем "Потужність"
     save_scores(chat_id, 0)
     
+    # 2. Сбрасываем Ранги (XP)
+    try:
+        redis.set(f"{XP_KEY_PREFIX}{chat_id}", 0)
+    except Exception as e:
+        logger.error(f"Ошибка сброса XP: {e}")
+
     await update.message.reply_text(
         "⚠️ <b>ОГОЛОШЕНО ТЕХНІЧНИЙ ДЕФОЛТ!</b>\n\n"
-        "Всі борги списані. Кредитна історія чиста.\n"
-        "⚡️ Потужність: <b>0</b>",
+        "Всі борги списані. Ранги обнулені.\n"
+        "Починаємо життя з чистого аркуша.\n\n"
+        "⚡️ Потужність: <b>0</b>\n"
+        "🍫 Ранг: <b>ПОРОХОБОТИ</b>",
         parse_mode=ParseMode.HTML
     )
 
-# --- ⭐️ ОБРАБОТЧИК СООБЩЕНИЙ + ПОЛИТИЧЕСКИЙ РАНДОМАЙЗЕР ⭐️ ---
+# --- ⭐️ ОБРАБОТЧИК СООБЩЕНИЙ + РАНДОМАЙЗЕР ⭐️ ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
     
@@ -241,7 +250,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except ValueError: 
             return
 
-        # --- 🔥 НАЧАЛО ПОЛИТИЧЕСКОГО РАНДОМАЙЗЕРА 🔥 ---
+        # --- 🔥 НАЧАЛО РАНДОМАЙЗЕРА 🔥 ---
         bonus_text = ""
         
         if operator == '+':
@@ -301,11 +310,11 @@ def main_bot():
     application.job_queue.run_daily(send_morning_message, time=datetime.time(8, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
 
     application.add_handler(CommandHandler("status", status_command))
-    application.add_handler(CommandHandler("reset", reset_command)) # <--- Добавили /reset
+    application.add_handler(CommandHandler("reset", reset_command))
     
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     
-    print("Бот 'ПОТУЖНИЙ' FULL VERSION запущен...")
+    print("Бот 'ПОТУЖНИЙ' (СБРОС ВСЕГО) запущен...")
     application.run_polling()
 
 if __name__ == '__main__':
@@ -316,4 +325,3 @@ if __name__ == '__main__':
         server_thread.daemon = True 
         server_thread.start()
         main_bot()
-            
