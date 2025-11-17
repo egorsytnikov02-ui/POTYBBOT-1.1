@@ -1,57 +1,135 @@
-import asyncio
 import logging
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
-from aiogram.types import Message
+import os
+import re
+import datetime
+import pytz
+import random 
+
+from threading import Thread
+from flask import Flask
+
 from upstash_redis import Redis
 
-# --- НАСТРОЙКИ (Вставь свои данные) ---
-BOT_TOKEN = "ТВОЙ_ТОКЕН_ТЕЛЕГРАМ"
-UPSTASH_URL = "ТВОЙ_UPSTASH_URL"
-UPSTASH_TOKEN = "ТВОЙ_UPSTASH_TOKEN"
+from telegram import Update
+from telegram.ext import Application, MessageHandler, CommandHandler, ContextTypes, filters, JobQueue
+from telegram.constants import ParseMode
+from telegram.error import BadRequest, Forbidden
 
-# Инициализация базы данных и бота
-redis = Redis(url=UPSTASH_URL, token=UPSTASH_TOKEN)
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+# --- Настройки бота (ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ) ---
+TOKEN = os.environ.get('TOKEN')
+UPSTASH_URL = os.environ.get('UPSTASH_REDIS_REST_URL')
+UPSTASH_TOKEN = os.environ.get('UPSTASH_REDIS_REST_TOKEN')
 
-# --- КОНФИГУРАЦИЯ РАНГОВ ---
-# Тексты поздравлений при достижении уровней
+# ⭐️ Подключение к Базе Данных (Redis)
+try:
+    redis = Redis(url=UPSTASH_URL, token=UPSTASH_TOKEN)
+    logger = logging.getLogger(__name__)
+    logger.info("Успешное подключение к Upstash (Redis)!")
+except Exception as e:
+    print(f"Критическая ошибка: Не удалось подключиться к Upstash (Redis)! {e}")
+    exit()
+
+# --- Веб-сервер (Для UptimeRobot) ---
+app = Flask('')
+@app.route('/')
+def home():
+    return "Бот 'ПОТУЖНИЙ' активний!"
+
+def run_web_server():
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+# ------------------------------------
+
+# --- Логирование ---
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+
+# --- КОНСТАНТЫ REDIS ---
+SCORES_KEY = "potuzhniy_scores"  # Для игры +/-
+XP_KEY_PREFIX = "chat_xp:"       # Для рангов (счетчик сообщений)
+
+# --- ⭐️ НАСТРОЙКИ РАНГОВ ⭐️ ---
 RANK_THRESHOLDS = {
     40: {
         "title": "ПОТУЖНІ ГРОМАДЯНИ 💪",
-        "msg": (
-            "Відчуваєте цей приплив сили? Армія, Мова, Віра і Ваші повідомлення! "
-            "Вітаємо, тепер Ви — **ПОТУЖНІ ГРОМАДЯНИ** 💪. Тримайте стрій, спільнота!"
-        )
+        "msg": "Відчуваєте цей приплив сили? Армія, Мова, Віра і Ваші повідомлення! Вітаємо, тепер Ви — <b>ПОТУЖНІ ГРОМАДЯНИ</b> 💪. Тримайте стрій, спільнота!"
     },
     80: {
         "title": "СХІДНЯКИ 🌅",
-        "msg": (
-            "Цей чат пройшов горнило і вогонь. Тут більше немає слабких чи випадкових. "
-            "Тепер Ви — **СХІДНЯКИ** 🌅. Сонце встає там, де вирішить ваша більшість!"
-        )
+        "msg": "Цей чат пройшов горнило і вогонь. Тут більше немає слабких чи випадкових. Тепер Ви — <b>СХІДНЯКИ</b> 🌅. Сонце встає там, де вирішить ваша більшість!"
     },
     120: {
         "title": "ХАРАКТЕРНИКИ ⚔️",
-        "msg": (
-            "Вашу єдність не беруть ні кулі, ні бани. Ви разом вийшли за межі реальності "
-            "і бачите майбутнє. Тепер Ви — **ХАРАКТЕРНИКИ** ⚔️. Цей чат офіційно зачарований!"
-        )
+        "msg": "Вашу єдність не беруть ні кулі, ні бани. Ви разом вийшли за межі реальності і бачите майбутнє. Тепер Ви — <b>ХАРАКТЕРНИКИ</b> ⚔️. Цей чат офіційно зачарований!"
     },
     200: {
         "title": "ЗЕЛЕБОБИ 🟢",
-        "msg": (
-            "Увага! Це кінець епохи бідності (на активність). Ви зробили це разом! "
-            "Всі на стадіон! Ви — **ЗЕЛЕБОБИ** 🟢. Ви тут влада, і це ваш чат!"
-        )
+        "msg": "Увага! Це кінець епохи бідності (на активність). Ви зробили це разом! Всі на стадіон! Ви — <b>ЗЕЛЕБОБИ</b> 🟢. Ви тут влада, і це ваш чат!"
     }
 }
 
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+# --- СПИСКИ ГИФОК ---
+POSITIVE_GIF_IDS = [
+    'CgACAgQAAyEFAATIovxHAAIBMmkbIzBGgizItYUn6o8fZlpqGjtqAAJiAwACTvSFUqxjPD48K-gAATYE',
+    'CgACAgQAAyEFAATIovxHAAIBHmkbIaZFLIP_S4833aCn_s-D4BDEAALZCwACRO1JUBpaBRGAwhBvNgQ',
+    'CgACAgQAAyEFAATIovxHAAIBIGkbIc3XIkwnqYFgwet3OxYCtTZwAAKBBwAC433cUFBsoYS9IXMkNgQ',
+    'CgACAgQAAyEFAATIovxHAAIBImkbIfDxrBTOiprkdrjUjh-UobQiAAIVBwACME5MUZm93-5h-vI6NgQ',
+    'CgACAgQAAyEFAATIovxHAAIBJGkbIiIp7dZsQdMlhbrVlXwZY3Y_AAIoBgACFs_0USgd43y068CINgQ',
+    'CgACAgQAAyEFAATIovxHAAIBJmkbIkAzqeJQLkUqWugqExioLPycAAI3BwACKbQMULIAAd4-8dO41DYE',
+    'CgACAgQAAyEFAATIovxHAAIBKGkbImRTZRMmpgxVOvYu5P5pN1MqAAIRBwACGVY9UqIyuKjywgTFNgQ',
+    'CgACAgQAAyEFAATIovxHAAIBKmkbIobxmBVu7jO8b9jB6RHmW73TAAIKBwACGAV1U9NNZdDU0v5yNgQ',
+    'CgACAgQAAyEFAATIovxHAAIBLGkbIrJqa2reCTDflu2Ewtx7JkCLAAL9BgAC0HSMU-Tr7ZY7KzoNNgQ',
+    'CgACAgQAAyEFAATIovxHAAIBLmkbIuB-FVENCjsqaFIkekzSInH9AAL0BgACG0V1U0ReVATVWXzmNgQ',
+    'CgACAgQAAyEFAATIovxHAAIBHGkbIYJHnkyR8eg3wjEVMWLLG1CHAAL6BwACJxdNU6LCCnXidiruNgQ',
+    'CgACAgQAAyEFAATIovxHAAIBGmkbIVl25ZMb_AfU7dwGPfOORcfrAAK5BgACwQ01UALpKP9zFPjXNgQ',
+    'CgACAgIAAyEFAATIovxHAAIBFGkbIDKVBz0AAcCHPWPiouFBQ-8QUwACZIcAAmI62UjvjUf8zjY5HzYE',
+    'CgACAgIAAyEFAATIovxHAAPdaRkVYfGLS8oPv9bQCqI01djvty4AApeHAALH_MhIcSfwdw2VoS82BA',
+    'CgACAgIAAyEFAATIovxHAAPbaRkVVbPf905738M4G3LMF2eG5QIAAtWHAALH_MhIO-EsNlzAWLg2BA',
+    'CgACAgIAAyEFAATIovxHAAPZaRkVQ0SQ5HVf5JX3ojNQskYlamsAAuGHAALH_MhIYotTm8JAOi02BA',
+    'CgACAgIAAyEFAATIovxHAAPXaRkVOZUJovZg4qZMAYtUBDRBDI8AAuWHAALH_MhIZsFR9x5rJqs2BA',
+    'CgACAgIAAyEFAATIovxHAAPVaRkVKPCPl8nHUFRqZb4TAaPMDegAAg2IAALH_MhINH831_iMvDw2BA',
+    'CgACAgIAAyEFAATIovxHAAPTaRkVIFYwvRjSdtR-xERpuocploYAAhSIAALH_MhId3xCMjhA4Hc2BA',
+    'CgACAgIAAyEFAATIovxHAAPRaRkVBwGS3n68R0PKj3nPCf5ST8gAAhWIAALH_MhI-QJJLtNtHIo2BA',
+    'CgACAgIAAyEFAATIovxHAAPlaRkXI45rEILHUdlJ_BX0clqDAAF2AAL1iwACdw_ISGFKTQirLN6zNgQ'
+]
 
-def get_current_rank_name(xp: int) -> str:
-    """Определяет название ранга по количеству XP"""
+NEGATIVE_GIF_IDS = [
+    'CgACAgQAAyEFAATIovxHAAIBMGkbIwse95wPdE8XZrduCgeAYuN7AAIyCAACixY1U0zP41C7kaTqNgQ',
+    'CgACAgIAAyEFAATIovxHAAIBFmkbIQRUp9M5hNU1aOKBZVDO_dCrAALIjAACA8jYSB_SEuxq5JebNgQ',
+    'CgACAgIAAyEFAATIovxHAAPnaRkXR25oJvr4YOYNMWVgmtnxHFAAAvaLAAJ3D8hIlSRJkeoXjIU2BA'
+]
+
+MORNING_GIF_IDS = [
+    'CgACAgQAAyEFAATIovxHAAIBGGkbITuIn7xBN5LjD9yi03KJ1IAGAAJSBwAC9eAsUxHtO0PMUFZ_NgQ',
+    'CgACAgIAAyEFAATIovxHAAPfaRkVy_pDWhYQ_ZyHn-zwBE-kmQ8AAhaIAALH_MhIpn-CVf-kYuw2BA',
+    'CgACAgIAAyEFAATIovxHAAPhaRkV1tVdDZYUA7UZBCIpRoKHfBgAAumHAALH_MhILWSt8-lICiI2BA'
+]
+
+EVENING_GIF_IDS = [
+    'CgACAgQAAyEFAATIovxHAAIBNGkbI2amm37CYPfedWFGbP1D3uFyAAItBQACasyUUgXuyrbIgvhkNgQ',
+    'CgACAgIAAyEFAATIovxHAAPjaRkWFCSv_DnOVDzksPaHO2czgXsAAt-HAALH_MhIKbxpNmaiw2g2BA'
+]
+
+# --- Вспомогательные функции (Работа с БД) ---
+def load_scores(chat_id):
+    """Загружает очки (игровые) для чата."""
+    try:
+        score = redis.hget(SCORES_KEY, chat_id)
+        return int(score) if score else 0
+    except Exception as e:
+        logger.error(f"Ошибка чтения очков {chat_id}: {e}")
+        return 0
+
+def save_scores(chat_id, new_score):
+    """Сохраняет очки (игровые) для чата."""
+    try:
+        redis.hset(SCORES_KEY, chat_id, str(new_score))
+    except Exception as e:
+        logger.error(f"Ошибка записи очков {chat_id}: {e}")
+
+def get_rank_name(xp):
+    """Определяет имя ранга по количеству сообщений (XP)."""
     if xp < 40:
         return "ПОРОХОБОТИ 🍫"
     elif 40 <= xp < 80:
@@ -63,65 +141,137 @@ def get_current_rank_name(xp: int) -> str:
     else:
         return "ЗЕЛЕБОБИ 🟢"
 
-# --- ХЕНДЛЕРЫ (ОБРАБОТЧИКИ) ---
+# --- Ежедневные задачи ---
+async def send_evening_message(context: ContextTypes.DEFAULT_TYPE):
+    logger.info("Запуск вечірнього повідомлення...")
+    try:
+        all_chats = redis.hgetall(SCORES_KEY)
+        if not all_chats: return
+    except Exception: return
 
-@dp.message(Command("start"))
-async def cmd_start(message: Message):
-    await message.answer("Бот ПОТУЖНИЙ на зв'язку. Працюємо.")
+    text = "Добрий вечір ,як у всех з ПОТУЖНІСТЮ ?"
+    for chat_id in all_chats.keys():
+        try:
+            await context.bot.send_animation(chat_id=chat_id, animation=random.choice(EVENING_GIF_IDS), caption=text)
+        except Exception: pass
 
-# Команда /status - узнать уровень чата
-@dp.message(Command("status"))
-async def cmd_status(message: Message):
-    chat_id = message.chat.id
-    # Получаем XP из базы (если нет, будет 0)
-    xp_raw = redis.get(f"chat:{chat_id}:xp")
-    xp = int(xp_raw) if xp_raw else 0
+async def send_morning_message(context: ContextTypes.DEFAULT_TYPE):
+    logger.info("Запуск ранкового повідомлення...")
+    try:
+        all_chats = redis.hgetall(SCORES_KEY)
+        if not all_chats: return
+    except Exception: return
+
+    text = "Добрий ранок , як у вас з ПОТУЖНІСТЮ"
+    for chat_id in all_chats.keys():
+        try:
+            await context.bot.send_animation(chat_id=chat_id, animation=random.choice(MORNING_GIF_IDS), caption=text)
+        except Exception: pass
+
+# --- ⭐️ НОВАЯ КОМАНДА: /status ---
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.effective_chat.id)
     
-    rank_name = get_current_rank_name(xp)
+    # Получаем данные из Redis
+    try:
+        xp_raw = redis.get(f"{XP_KEY_PREFIX}{chat_id}")
+        xp = int(xp_raw) if xp_raw else 0
+        score = load_scores(chat_id) # Игровые очки
+    except Exception:
+        xp = 0
+        score = 0
+        
+    rank_name = get_rank_name(xp)
     
-    await message.answer(
-        f"📊 **Статистика спільноти**\n\n"
-        f"💬 Рахунок: **{xp}**\n"
-        f"🏆 Ранг: **{rank_name}**",
-        parse_mode="Markdown"
+    await update.message.reply_text(
+        f"📊 <b>Статистика спільноти</b>\n\n"
+        f"💬 Активність (XP): <b>{xp}</b>\n"
+        f"⚡️ Потужність: <b>{score}</b>\n"
+        f"🏆 Поточний ранг: <b>{rank_name}</b>",
+        parse_mode=ParseMode.HTML
     )
 
-# Если нужно сохранить функцию с ID гифок (о которой ты просил ранее)
-@dp.message(F.animation)
-async def get_gif_id(message: Message):
-    # Отправляем ID гифки (для твоих нужд)
-    await message.reply(f"ID цієї гіфки: `{message.animation.file_id}`", parse_mode="Markdown")
-    # Гифки тоже считаем за активность, переходим к начислению XP
-    await process_xp(message)
-
-# Обработка ВСЕХ остальных сообщений (текст, фото и т.д.)
-@dp.message()
-async def handle_all_messages(message: Message):
-    await process_xp(message)
-
-# --- ЛОГИКА НАЧИСЛЕНИЯ ОПЫТА ---
-async def process_xp(message: Message):
-    # Работаем только в группах (не в личке)
-    if message.chat.type not in ["group", "supergroup"]:
-        return
-
-    chat_id = message.chat.id
+# --- ОБРАБОТЧИК СООБЩЕНИЙ (Логика XP и +/-) ---
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message: return
     
-    # Увеличиваем счетчик в базе Upstash на +1
-    # redis.incr возвращает новое значение сразу после увеличения
-    new_xp = redis.incr(f"chat:{chat_id}:xp")
+    chat_id = str(update.message.chat_id) 
+    
+    # ⭐️ 1. ЛОГИКА РАНГОВ (Считаем каждое сообщение)
+    try:
+        # Увеличиваем счетчик сообщений на +1
+        new_xp = redis.incr(f"{XP_KEY_PREFIX}{chat_id}")
+        
+        # Проверяем, не достигли ли мы уровня
+        if new_xp in RANK_THRESHOLDS:
+            config = RANK_THRESHOLDS[new_xp]
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=config["msg"],
+                parse_mode=ParseMode.HTML
+            )
+    except Exception as e:
+        logger.error(f"Ошибка обновления XP для {chat_id}: {e}")
 
-    # Проверяем, достигли ли мы порога (40, 80, 120, 200)
-    if new_xp in RANK_THRESHOLDS:
-        config = RANK_THRESHOLDS[new_xp]
-        # Отправляем торжественное сообщение
-        await message.answer(config["msg"], parse_mode="Markdown")
+    # ⭐️ 2. ЛОГИКА ИГРЫ (+/- Потужность)
+    # Работаем только если есть текст
+    if not update.message.text: return
+    message_text = update.message.text.strip()
+
+    match = re.search(r'([+-])\s*(\d+)', message_text)
+    if match:
+        operator = match.group(1)
+        try: 
+            value = int(match.group(2))
+        except ValueError: 
+            return
+
+        current_score = load_scores(chat_id) 
+
+        if operator == '+': 
+            new_score = current_score + value
+            gif_id = random.choice(POSITIVE_GIF_IDS)
+        else: 
+            new_score = current_score - value
+            gif_id = random.choice(NEGATIVE_GIF_IDS)
+
+        save_scores(chat_id, new_score) 
+
+        try:
+            await update.message.reply_animation(
+                animation=gif_id,
+                caption=f"🏆 <b>Рахунок потужності:</b> <code>{new_score}</code>",
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            logger.error(f"Не удалось отправить ГИФ: {e}")
+            await update.message.reply_text(f"🏆 <b>Рахунок потужності:</b> <code>{new_score}</code>", parse_mode=ParseMode.HTML)
 
 # --- ЗАПУСК ---
-async def main():
-    logging.basicConfig(level=logging.INFO)
-    print("Bot is running...")
-    await dp.start_polling(bot)
+def main_bot():
+    job_queue = JobQueue()
+    application = Application.builder().token(TOKEN).job_queue(job_queue).build()
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    UKRAINE_TZ = pytz.timezone('Europe/Kyiv')
+    
+    # Задачи
+    application.job_queue.run_daily(send_evening_message, time=datetime.time(20, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
+    application.job_queue.run_daily(send_morning_message, time=datetime.time(8, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
+
+    # ⭐️ Добавляем команду /status
+    application.add_handler(CommandHandler("status", status_command))
+
+    # Основной обработчик (текст и команды)
+    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
+    
+    print("Бот 'ПОТУЖНИЙ' с системой рангов запущен...")
+    application.run_polling()
+
+if __name__ == '__main__':
+    if not TOKEN or not UPSTASH_URL:
+        print("КРИТИЧЕСКАЯ ОШИБКА: Нет переменных окружения!")
+    else:
+        server_thread = Thread(target=run_web_server)
+        server_thread.daemon = True 
+        server_thread.start()
+        main_bot()
