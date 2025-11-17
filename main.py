@@ -14,12 +14,12 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters, JobQueue
 from telegram.constants import ParseMode
 
-# --- Настройки бота (ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ) ---
+# --- Настройки бота ---
 TOKEN = os.environ.get('TOKEN')
 UPSTASH_URL = os.environ.get('UPSTASH_REDIS_REST_URL')
 UPSTASH_TOKEN = os.environ.get('UPSTASH_REDIS_REST_TOKEN')
 
-# ⭐️ НОВОЕ: Подключение к Базе Данных (Redis)
+# --- Подключение к Redis ---
 try:
     redis = Redis(url=UPSTASH_URL, token=UPSTASH_TOKEN)
     logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ except Exception as e:
     print(f"Критическая ошибка: Не удалось подключиться к Upstash (Redis)! {e}")
     exit()
 
-# --- Веб-сервер (Для UptimeRobot) ---
+# --- Веб-сервер ---
 app = Flask('')
 @app.route('/')
 def home():
@@ -43,12 +43,13 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# 🛡 БЕЗОПАСНОСТЬ: Используем отдельную "папку" для тестов.
-# Это гарантирует, что данные основного бота (potuzhniy_scores) НЕ ПОСТРАДАЮТ.
+# 🛡 БЕЗОПАСНОСТЬ: База данных для ТЕСТА
 SCORES_KEY = "test_scores"
 
-# ⭐️ ПУСТЫЕ СПИСКИ (С заглушкой, чтобы не было ошибки empty sequence)
-# Бот будет слать текст, пока ты не заменишь 'PLACEHOLDER' на реальные ID.
+# ⭐️ ГИФКА ДЛЯ РЕАКЦИИ НА ОТВЕТ ⭐️
+REPLY_GIF_ID = 'CgACAgIAAyEFAATIovxHAAIBSmkbMaIuOb-D2BxGZdpSf03s1IDcAAJAgwACSL3ZSLtCpogi_5_INgQ'
+
+# ⭐️ ТЕСТОВЫЕ СПИСКИ (Заглушки, пока ты не добавишь свои)
 POSITIVE_GIF_IDS = ['PLACEHOLDER']
 NEGATIVE_GIF_IDS = ['PLACEHOLDER']
 MORNING_GIF_IDS = ['PLACEHOLDER']
@@ -66,14 +67,12 @@ def load_scores(chat_id):
 
 def save_scores(chat_id, new_score):
     try:
-        # Только сохранение (hset). Удаления (hdel) здесь нет.
         redis.hset(SCORES_KEY, chat_id, str(new_score))
     except Exception as e:
         logger.error(f"DB Error (Save): {e}")
 
-# --- ⭐️ ПОМОЩНИК: ПОЛУЧЕНИЕ ID ГИФОК ⭐️ ---
+# --- Помощник для ID ---
 async def show_gif_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отвечает на ГИФку, показывая ее file_id для ЭТОГО бота."""
     if update.message.animation:
         file_id = update.message.animation.file_id
         await update.message.reply_text(
@@ -83,54 +82,51 @@ async def show_gif_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- Рассылки ---
 async def send_evening_message(context: ContextTypes.DEFAULT_TYPE):
-    logger.info("Test Evening Job...")
     try:
-        all_chats = redis.hgetall(SCORES_KEY) # Читаем только тестовые чаты
+        all_chats = redis.hgetall(SCORES_KEY)
         if not all_chats: return
     except: return
-
     text = "Тест вечір: Як справи?"
     for chat_id in all_chats.keys():
         try:
             gif_id = random.choice(EVENING_GIF_IDS)
             await context.bot.send_animation(chat_id=chat_id, animation=gif_id, caption=text)
-        except Exception:
-            # Если гифка не работает (заглушка), шлем текст
+        except:
             try: await context.bot.send_message(chat_id=chat_id, text=text)
             except: pass
 
 async def send_morning_message(context: ContextTypes.DEFAULT_TYPE):
-    logger.info("Test Morning Job...")
     try:
-        all_chats = redis.hgetall(SCORES_KEY) # Читаем только тестовые чаты
+        all_chats = redis.hgetall(SCORES_KEY)
         if not all_chats: return
     except: return
-
     text = "Тест ранок: Прокидаємось!"
     for chat_id in all_chats.keys():
         try:
             gif_id = random.choice(MORNING_GIF_IDS)
             await context.bot.send_animation(chat_id=chat_id, animation=gif_id, caption=text)
-        except Exception:
+        except:
             try: await context.bot.send_message(chat_id=chat_id, text=text)
             except: pass
 
-# --- Обработка сообщений (+/-) ---
+# --- ⭐️ ОБРАБОТЧИК СООБЩЕНИЙ (С ЛОГИКОЙ ОТВЕТА) ⭐️ ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text: return
+    if not update.message: return # Если сообщения нет (редкий случай)
     
-    message_text = update.message.text.strip()
+    message_text = ""
+    if update.message.text:
+        message_text = update.message.text.strip()
+    
     chat_id = str(update.message.chat_id) 
 
+    # 1. ПРОВЕРКА: Это изменение очков (+/-)?
     match = re.search(r'([+-])\s*(\d+)', message_text)
-
     if match:
         operator = match.group(1)
         try: value = int(match.group(2))
         except ValueError: return
 
         current_score = load_scores(chat_id) 
-
         if operator == '+': 
             new_score = current_score + value
             gif_id = random.choice(POSITIVE_GIF_IDS)
@@ -147,31 +143,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode=ParseMode.HTML
             )
         except Exception as e:
-            # Если ID гифки нет или он неправильный, просто шлем текст
-            logger.warning(f"Gif error: {e}")
-            await update.message.reply_text(
-                f"🧪 Тест: <code>{new_score}</code>",
-                parse_mode=ParseMode.HTML
+            await update.message.reply_text(f"🧪 Тест: <code>{new_score}</code>", parse_mode=ParseMode.HTML)
+        
+        return # 👈 Если это были очки, выходим, чтобы не спамить лишний раз
+
+    # 2. ⭐️ ПРОВЕРКА: ЭТО ОТВЕТ (REPLY) НА СООБЩЕНИЕ БОТА? ⭐️
+    # Проверяем: есть ли reply, и является ли автор исходного сообщения (from_user.id) самим ботом (context.bot.id)
+    if update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
+        try:
+            # Отправляем твою спец-гифку
+            await update.message.reply_animation(
+                animation=REPLY_GIF_ID,
+                caption="👀" # Можно добавить подпись или оставить пустым
             )
+        except Exception as e:
+            logger.error(f"Не удалось отправить гифку на реплай: {e}")
 
 # --- Запуск ---
 def main_bot():
     job_queue = JobQueue()
     application = Application.builder().token(TOKEN).job_queue(job_queue).build()
-
     UKRAINE_TZ = pytz.timezone('Europe/Kyiv')
     
-    # Таймеры
     job_queue.run_daily(send_evening_message, time=datetime.time(hour=20, minute=0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
     job_queue.run_daily(send_morning_message, time=datetime.time(hour=8, minute=0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
 
-    # Обработчики
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # Обработчики (ТЕКСТ + СТИКЕРЫ + ФОТО - чтобы реагировал на любой ответ)
+    # filters.ALL ловит всё, но мы фильтруем внутри функции
+    application.add_handler(MessageHandler(filters.TEXT | filters.Sticker.ALL | filters.PHOTO, handle_message))
     
-    # ⭐️ ВКЛЮЧЕН ПОМОЩНИК ДЛЯ СБОРА ID
     application.add_handler(MessageHandler(filters.ANIMATION, show_gif_id))
 
-    print("TEST BOT (SAFE MODE) запущен...")
+    print("TEST BOT (REPLY MODE) запущен...")
     application.run_polling()
 
 if __name__ == '__main__':
