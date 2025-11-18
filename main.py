@@ -28,7 +28,7 @@ except Exception as e:
     print(f"Критическая ошибка: Не удалось подключиться к Upstash (Redis)! {e}")
     exit()
 
-# --- Веб-сервер (Для UptimeRobot) ---
+# --- Веб-сервер (Для UptimeRobot / Cron-job) ---
 app = Flask('')
 @app.route('/')
 def home():
@@ -67,15 +67,8 @@ RANK_THRESHOLDS = {
     }
 }
 
-# --- СПИСКИ ГИФОК (ЗАПОЛНЕНО) ---
+# --- СПИСКИ ГИФОК ---
 POSITIVE_GIF_IDS = [
-    'CgACAgIAAyEFAATIovxHAAIDVmkcY-jV7cho_-HcsLjh_RofLJKjAAINiAACx_zISC9j9QzPxV9WNgQ',
-    'CgACAgIAAyEFAATIovxHAAIDV2kcY_dcl4K8D0vumD39GfpCfQTQAAIViAACx_zISNm2u7_zeLR_NgQ',
-    'CgACAgQAAyEFAATIovxHAAIDWGkcZBTCjm54LRySlaOJzFx9zeUPAAIgBwACwx88U5Lt35EOoe9GNgQ',
-    'CgACAgIAAyEFAATIovxHAAIDWWkcZCGzkZ-lidcqsGbVsJ8hzgw7AALVhwACx_zISF45JcjK2onnNgQ',
-    'CgACAgIAAyEFAATIovxHAAIDWmkcZCodJKCDBCPo4itq8yTyEQZlAALlhwACx_zISOuhW73U98UxNgQ',
-    'CgACAgIAAyEFAATIovxHAAIDW2kcZDheytgz36T2Emd5yqbZRv6uAAL1iwACdw_ISA6_TBBao63oNgQ',
-    'CgACAgIAAyEFAATIovxHAAIDXWkcZF2vepF3E1QmQUQRZ5vvCFbRAAIUiAACx_zISC15nSGMab3rNgQ',
     'CgACAgIAAyEFAATIovxHAAIDDWkcMy0m8C5AL5UW9vaBZ0JIUHhsAAJkhwACYjrZSAOnzOZuDDU6NgQ',
     'CgACAgQAAyEFAATIovxHAAIDEmkcMy1wQjRBAluj_AXzdQPqkVd0AALZCwACRO1JUBTOazJVNz4lNgQ',
     'CgACAgQAAyEFAATIovxHAAIDE2kcMy3Sq2SRn1idBKYth4GYxSLmAAKBBwAC433cUKZnfhyAKjuVNgQ',
@@ -90,14 +83,12 @@ POSITIVE_GIF_IDS = [
 ]
 
 NEGATIVE_GIF_IDS = [
-    'CgACAgIAAyEFAATIovxHAAIDXmkcZGfSfFKuvs6WTJVv3vE6ld0JAAL2iwACdw_ISKhvgvB331VrNgQ',
     'CgACAgIAAyEFAATIovxHAAIDDmkcMy2DYcJtlJTkU_ZN02iVPdRSAALIjAACA8jYSHQ4Pa-xroPQNgQ',
     'CgACAgQAAyEFAATIovxHAAIDEWkcMy1XvSbhxGnxdYsLRD6jTHpVAAL6BwACJxdNU_aOqAjhtOajNgQ',
     'CgACAgQAAyEFAATIovxHAAIDG2kcMy2xDXNvCKMmkpjFt9aULAahAAIyCAACixY1U7CC6tw4zC7KNgQ'
 ]
 
 MORNING_GIF_IDS = [
-    'CgACAgIAAyEFAATIovxHAAIDXGkcZFOLJBDQxl5V5VY3TozENp5PAAIWiAACx_zISMT-72AUUP9BNgQ',
     'CgACAgQAAyEFAATIovxHAAIDD2kcMy0aLio6iiYYiVEoq0R4xnGnAAJSBwAC9eAsU0GetDmAM6HRNgQ'
 ]
 
@@ -105,7 +96,7 @@ EVENING_GIF_IDS = [
     'CgACAgQAAyEFAATIovxHAAIDC2kcMDXYBOfejZRHnUImdDOTWgT_AAItBQACasyUUrsEDYn5dujrNgQ'
 ]
 
-# Гифка, если кто-то отвечает боту
+# Гифка для реплая боту
 REPLY_TO_BOT_GIF_ID = 'CgACAgIAAyEFAATIovxHAAIBSmkbMaIuOb-D2BxGZdpSf03s1IDcAAJAgwACSL3ZSLtCpogi_5_INgQ'
 
 # --- Вспомогательные функции ---
@@ -192,7 +183,6 @@ async def gif_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
     
-    # Проверка админа
     try:
         member = await chat.get_member(user.id)
         if member.status not in ['creator', 'administrator']:
@@ -221,7 +211,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
     chat_id = str(update.message.chat_id) 
     
-    # 1. ЛОГИКА РАНГОВ (Всегда +1 XP)
+    # 1. ЛОГИКА РАНГОВ
     try:
         new_xp = redis.incr(f"{XP_KEY_PREFIX}{chat_id}")
         if new_xp in RANK_THRESHOLDS:
@@ -229,10 +219,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text=config["msg"], parse_mode=ParseMode.HTML)
     except Exception: pass
 
-    # ⭐️ 2. ОТВЕТ НА РЕПЛАЙ БОТУ (НОВАЯ ФУНКЦИЯ)
+    # ⭐️ 2. ОТВЕТ НА РЕПЛАЙ БОТУ (С ОСКОРБЛЕНИЕМ)
     if update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
         try:
-            await update.message.reply_animation(animation=REPLY_TO_BOT_GIF_ID)
+            await update.message.reply_animation(
+                animation=REPLY_TO_BOT_GIF_ID,
+                caption="НЕ ТРОГАЙ МЕНЯ , КУСОК МЯСА"
+            )
         except Exception: pass
 
     # 3. ЛОГИКА ИГРЫ
@@ -248,28 +241,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except ValueError: return
 
         bonus_text = ""
+        # 🔥 ЛОГИКА ДЛЯ ПЛЮСА
         if operator == '+':
             chance = random.random()
             if 0.60 < chance <= 0.70:
                 value = value * 2
                 bonus_text = "\n🇺🇸 <b>ПЕРЕМОГА! МВФ дав транш! (x2)</b>"
             elif 0.70 < chance <= 0.80:
-                value = value + 500
-                bonus_text = "\n💰 <b>ПЕРЕМОГА! Знайшов заначку Януковича! (+500)</b>"
+                value = value + 20
+                bonus_text = "\n🍞 <b>ПЕРЕМОГА! Знайшов заначку Януковича! Але це просто сухарі... (+20)</b>"
             elif 0.80 < chance <= 0.90:
                 value = max(1, int(value / 2))
                 bonus_text = "\n🤡 <b>ЗРАДА! Половина пішла на відкат... (/2)</b>"
             elif 0.90 < chance <= 0.95:
                 value = 0
-                bonus_text = "\n👮‍♂️ <b>ЗРАДА! Гроші заблоковані фінмоніторингом! (0)</b>"
+                bonus_text = "\n👮‍♂️ <b>ЗРАДА! Рахунки заблоковані фінмоніторингом! (0)</b>"
             elif chance > 0.95:
-                value = -value
-                bonus_text = "\n🔄 <b>ЗРАДА! Ти переплутав кнопки! (Інверсія)</b>"
+                # ШТРАФ ОТ ГЕТМАНЦЕВА
+                value = -50
+                bonus_text = "\n📉 <b>ЗРАДА! Гетманцев ввів податок на твої повідомлення! (-50)</b>"
 
         current_score = load_scores(chat_id) 
+        # Если оператор +, прибавляем (но штраф -50 все равно вычтется)
         new_score = current_score + value if operator == '+' else current_score - value
         
-        gif_id = random.choice(POSITIVE_GIF_IDS) if operator == '+' else random.choice(NEGATIVE_GIF_IDS)
+        # Выбор гифки
+        if operator == '+':
+            if value < 0: # Если выпал штраф, шлем негативную гифку
+                gif_id = random.choice(NEGATIVE_GIF_IDS)
+            else:
+                gif_id = random.choice(POSITIVE_GIF_IDS)
+        else:
+            gif_id = random.choice(NEGATIVE_GIF_IDS)
+            
         save_scores(chat_id, new_score) 
 
         reply_text = f"🏆 <b>Рахунок потужності:</b> <code>{new_score}</code>{bonus_text}"
@@ -294,7 +298,7 @@ def main_bot():
     application.job_queue.run_daily(send_evening_message, time=datetime.time(20, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
     application.job_queue.run_daily(send_morning_message, time=datetime.time(8, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
 
-    print("Бот 'ПОТУЖНИЙ' (FINAL) запущен...")
+    print("Бот 'ПОТУЖНИЙ' запущен...")
     application.run_polling()
 
 if __name__ == '__main__':
