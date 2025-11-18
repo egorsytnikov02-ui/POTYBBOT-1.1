@@ -47,8 +47,7 @@ logging.basicConfig(
 SCORES_KEY = "potuzhniy_scores"  # Для игры +/-
 XP_KEY_PREFIX = "chat_xp:"       # Для рангов (счетчик сообщений)
 
-# --- ⭐️ НАСТРОЙКИ РАНГОВ (Шаг 10 начиная с 30) ⭐️ ---
-# 0-29 XP = ПОРОХОБОТИ (Default)
+# --- ⭐️ НАСТРОЙКИ РАНГОВ ⭐️ ---
 RANK_THRESHOLDS = {
     30: {
         "title": "ПОТУЖНІ ГРОМАДЯНИ 💪",
@@ -68,99 +67,81 @@ RANK_THRESHOLDS = {
     }
 }
 
-# --- СПИСКИ ГИФОК ---
+# --- СПИСКИ ГИФОК (ЗАПОЛНЕНО) ---
 POSITIVE_GIF_IDS = [
-    'CgACAgQAAyEFAATIovxHAAIBMmkbIzBGgizItYUn6o8fZlpqGjtqAAJiAwACTvSFUqxjPD48K-gAATYE',
-    'CgACAgQAAyEFAATIovxHAAIBHmkbIaZFLIP_S4833aCn_s-D4BDEAALZCwACRO1JUBpaBRGAwhBvNgQ',
-    'CgACAgQAAyEFAATIovxHAAIBIGkbIc3XIkwnqYFgwet3OxYCtTZwAAKBBwAC433cUFBsoYS9IXMkNgQ',
-    'CgACAgQAAyEFAATIovxHAAIBImkbIfDxrBTOiprkdrjUjh-UobQiAAIVBwACME5MUZm93-5h-vI6NgQ',
-    'CgACAgQAAyEFAATIovxHAAIBJGkbIiIp7dZsQdMlhbrVlXwZY3Y_AAIoBgACFs_0USgd43y068CINgQ',
-    'CgACAgQAAyEFAATIovxHAAIBJmkbIkAzqeJQLkUqWugqExioLPycAAI3BwACKbQMULIAAd4-8dO41DYE',
-    'CgACAgQAAyEFAATIovxHAAIBKGkbImRTZRMmpgxVOvYu5P5pN1MqAAIRBwACGVY9UqIyuKjywgTFNgQ',
-    'CgACAgQAAyEFAATIovxHAAIBKmkbIobxmBVu7jO8b9jB6RHmW73TAAIKBwACGAV1U9NNZdDU0v5yNgQ',
-    'CgACAgQAAyEFAATIovxHAAIBLGkbIrJqa2reCTDflu2Ewtx7JkCLAAL9BgAC0HSMU-Tr7ZY7KzoNNgQ',
-    'CgACAgQAAyEFAATIovxHAAIBLmkbIuB-FVENCjsqaFIkekzSInH9AAL0BgACG0V1U0ReVATVWXzmNgQ',
-    'CgACAgQAAyEFAATIovxHAAIBHGkbIYJHnkyR8eg3wjEVMWLLG1CHAAL6BwACJxdNU6LCCnXidiruNgQ',
-    'CgACAgQAAyEFAATIovxHAAIBGmkbIVl25ZMb_AfU7dwGPfOORcfrAAK5BgACwQ01UALpKP9zFPjXNgQ',
-    'CgACAgIAAyEFAATIovxHAAIBFGkbIDKVBz0AAcCHPWPiouFBQ-8QUwACZIcAAmI62UjvjUf8zjY5HzYE',
-    'CgACAgIAAyEFAATIovxHAAPdaRkVYfGLS8oPv9bQCqI01djvty4AApeHAALH_MhIcSfwdw2VoS82BA',
-    'CgACAgIAAyEFAATIovxHAAPbaRkVVbPf905738M4G3LMF2eG5QIAAtWHAALH_MhIO-EsNlzAWLg2BA',
-    'CgACAgIAAyEFAATIovxHAAPZaRkVQ0SQ5HVf5JX3ojNQskYlamsAAuGHAALH_MhIYotTm8JAOi02BA',
-    'CgACAgIAAyEFAATIovxHAAPXaRkVOZUJovZg4qZMAYtUBDRBDI8AAuWHAALH_MhIZsFR9x5rJqs2BA',
-    'CgACAgIAAyEFAATIovxHAAPVaRkVKPCPl8nHUFRqZb4TAaPMDegAAg2IAALH_MhINH831_iMvDw2BA',
-    'CgACAgIAAyEFAATIovxHAAPTaRkVIFYwvRjSdtR-xERpuocploYAAhSIAALH_MhId3xCMjhA4Hc2BA',
-    'CgACAgIAAyEFAATIovxHAAPRaRkVBwGS3n68R0PKj3nPCf5ST8gAAhWIAALH_MhI-QJJLtNtHIo2BA',
-    'CgACAgIAAyEFAATIovxHAAPlaRkXI45rEILHUdlJ_BX0clqDAAF2AAL1iwACdw_ISGFKTQirLN6zNgQ'
+    'CgACAgIAAyEFAATIovxHAAIDDWkcMy0m8C5AL5UW9vaBZ0JIUHhsAAJkhwACYjrZSAOnzOZuDDU6NgQ',
+    'CgACAgQAAyEFAATIovxHAAIDEmkcMy1wQjRBAluj_AXzdQPqkVd0AALZCwACRO1JUBTOazJVNz4lNgQ',
+    'CgACAgQAAyEFAATIovxHAAIDE2kcMy3Sq2SRn1idBKYth4GYxSLmAAKBBwAC433cUKZnfhyAKjuVNgQ',
+    'CgACAgQAAyEFAATIovxHAAIDFGkcMy2jOW2jpAzJYKvMAcUf820uAAIVBwACME5MUQkcFAABdz9BzjYE',
+    'CgACAgQAAyEFAATIovxHAAIDFmkcMy1RSw8Mc2i_WLjrhZY7r62aAAI3BwACKbQMUI-7MMr1sGU5NgQ',
+    'CgACAgQAAyEFAATIovxHAAIDFWkcMy3sBmzcsvunOSvq8CqTFeZJAAIoBgACFs_0UWK1EYRe_OceNgQ',
+    'CgACAgQAAyEFAATIovxHAAICSmkbZVhc1_Ff9ymU6mj8JzxqmDNXAAIRBwACGVY9Uo0EYWP8LfbBNgQ',
+    'CgACAgQAAyEFAATIovxHAAIDGGkcMy1bYuToU-3pbu70GwSg3vFIAAIKBwACGAV1U1fbtsKLFSETNgQ',
+    'CgACAgQAAyEFAATIovxHAAIDGWkcMy3E8mqcq9daCAngW1xWAjp7AAL9BgAC0HSMU9zF9CSFB2QjNgQ',
+    'CgACAgQAAyEFAATIovxHAAIDGmkcMy3uElNklpmDgBeW35PgFEREAAL0BgACG0V1U0tBqgM4lfk_NgQ',
+    'CgACAgQAAyEFAATIovxHAAIDEGkcMy1_JWbQ4AmY0H6iKRGZYOLgAAK5BgACwQ01UG834SxB23AlNgQ'
 ]
 
 NEGATIVE_GIF_IDS = [
-    'CgACAgQAAyEFAATIovxHAAIBMGkbIwse95wPdE8XZrduCgeAYuN7AAIyCAACixY1U0zP41C7kaTqNgQ',
-    'CgACAgIAAyEFAATIovxHAAIBFmkbIQRUp9M5hNU1aOKBZVDO_dCrAALIjAACA8jYSB_SEuxq5JebNgQ',
-    'CgACAgIAAyEFAATIovxHAAPnaRkXR25oJvr4YOYNMWVgmtnxHFAAAvaLAAJ3D8hIlSRJkeoXjIU2BA'
+    'CgACAgIAAyEFAATIovxHAAIDDmkcMy2DYcJtlJTkU_ZN02iVPdRSAALIjAACA8jYSHQ4Pa-xroPQNgQ',
+    'CgACAgQAAyEFAATIovxHAAIDEWkcMy1XvSbhxGnxdYsLRD6jTHpVAAL6BwACJxdNU_aOqAjhtOajNgQ',
+    'CgACAgQAAyEFAATIovxHAAIDG2kcMy2xDXNvCKMmkpjFt9aULAahAAIyCAACixY1U7CC6tw4zC7KNgQ'
 ]
 
 MORNING_GIF_IDS = [
-    'CgACAgQAAyEFAATIovxHAAIBGGkbITuIn7xBN5LjD9yi03KJ1IAGAAJSBwAC9eAsUxHtO0PMUFZ_NgQ',
-    'CgACAgIAAyEFAATIovxHAAPfaRkVy_pDWhYQ_ZyHn-zwBE-kmQ8AAhaIAALH_MhIpn-CVf-kYuw2BA',
-    'CgACAgIAAyEFAATIovxHAAPhaRkV1tVdDZYUA7UZBCIpRoKHfBgAAumHAALH_MhILWSt8-lICiI2BA'
+    'CgACAgQAAyEFAATIovxHAAIDD2kcMy0aLio6iiYYiVEoq0R4xnGnAAJSBwAC9eAsU0GetDmAM6HRNgQ'
 ]
 
 EVENING_GIF_IDS = [
-    'CgACAgQAAyEFAATIovxHAAIBNGkbI2amm37CYPfedWFGbP1D3uFyAAItBQACasyUUgXuyrbIgvhkNgQ',
-    'CgACAgIAAyEFAATIovxHAAPjaRkWFCSv_DnOVDzksPaHO2czgXsAAt-HAALH_MhIKbxpNmaiw2g2BA'
+    'CgACAgQAAyEFAATIovxHAAIDC2kcMDXYBOfejZRHnUImdDOTWgT_AAItBQACasyUUrsEDYn5dujrNgQ'
 ]
+
+# Гифка, если кто-то отвечает боту
+REPLY_TO_BOT_GIF_ID = 'CgACAgIAAyEFAATIovxHAAIBSmkbMaIuOb-D2BxGZdpSf03s1IDcAAJAgwACSL3ZSLtCpogi_5_INgQ'
 
 # --- Вспомогательные функции ---
 def load_scores(chat_id):
     try:
         score = redis.hget(SCORES_KEY, chat_id)
         return int(score) if score else 0
-    except Exception as e:
-        logger.error(f"Ошибка чтения очков {chat_id}: {e}")
-        return 0
+    except Exception: return 0
 
 def save_scores(chat_id, new_score):
     try:
         redis.hset(SCORES_KEY, chat_id, str(new_score))
-    except Exception as e:
-        logger.error(f"Ошибка записи очков {chat_id}: {e}")
+    except Exception: pass
 
 def get_rank_name(xp):
-    if xp < 30:
-        return "ПОРОХОБОТИ 🍫"
-    elif 30 <= xp < 40:
-        return "ПОТУЖНІ ГРОМАДЯНИ 💪"
-    elif 40 <= xp < 50:
-        return "СХІДНЯКИ 🌅"
-    elif 50 <= xp < 60:
-        return "ХАРАКТЕРНИКИ ⚔️"
-    else:
-        return "ЗЕЛЕБОБИ 🟢"
+    if xp < 30: return "ПОРОХОБОТИ 🍫"
+    elif 30 <= xp < 40: return "ПОТУЖНІ ГРОМАДЯНИ 💪"
+    elif 40 <= xp < 50: return "СХІДНЯКИ 🌅"
+    elif 50 <= xp < 60: return "ХАРАКТЕРНИКИ ⚔️"
+    else: return "ЗЕЛЕБОБИ 🟢"
 
 # --- Ежедневные задачи ---
 async def send_evening_message(context: ContextTypes.DEFAULT_TYPE):
+    if not EVENING_GIF_IDS: return
     try:
         all_chats = redis.hgetall(SCORES_KEY)
         if not all_chats: return
-    except Exception: return
-
-    text = "Добрий вечір ,як у всех з ПОТУЖНІСТЮ ?"
-    for chat_id in all_chats.keys():
-        try:
-            await context.bot.send_animation(chat_id=chat_id, animation=random.choice(EVENING_GIF_IDS), caption=text)
-        except Exception: pass
+        text = "Добрий вечір ,як у всех з ПОТУЖНІСТЮ ?"
+        for chat_id in all_chats.keys():
+            try:
+                await context.bot.send_animation(chat_id=chat_id, animation=random.choice(EVENING_GIF_IDS), caption=text)
+            except Exception: pass
+    except Exception: pass
 
 async def send_morning_message(context: ContextTypes.DEFAULT_TYPE):
+    if not MORNING_GIF_IDS: return
     try:
         all_chats = redis.hgetall(SCORES_KEY)
         if not all_chats: return
-    except Exception: return
-
-    text = "Добрий ранок , як у вас з ПОТУЖНІСТЮ"
-    for chat_id in all_chats.keys():
-        try:
-            await context.bot.send_animation(chat_id=chat_id, animation=random.choice(MORNING_GIF_IDS), caption=text)
-        except Exception: pass
+        text = "Добрий ранок , як у вас з ПОТУЖНІСТЮ"
+        for chat_id in all_chats.keys():
+            try:
+                await context.bot.send_animation(chat_id=chat_id, animation=random.choice(MORNING_GIF_IDS), caption=text)
+            except Exception: pass
+    except Exception: pass
 
 # --- КОМАНДЫ ---
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -172,14 +153,9 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         xp = 0
         score = 0
-        
     rank_name = get_rank_name(xp)
-    
     await update.message.reply_text(
-        f"📊 <b>Статистика спільноти</b>\n\n"
-        f"💬 Активність (XP): <b>{xp}</b>\n"
-        f"⚡️ Потужність: <b>{score}</b>\n"
-        f"🏆 Поточний ранг: <b>{rank_name}</b>",
+        f"📊 <b>Статистика спільноти</b>\n\n💬 Активність (XP): <b>{xp}</b>\n⚡️ Потужність: <b>{score}</b>\n🏆 Поточний ранг: <b>{rank_name}</b>",
         parse_mode=ParseMode.HTML
     )
 
@@ -189,32 +165,51 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         member = await chat.get_member(user.id)
         if member.status not in ['creator', 'administrator']:
-            await update.message.reply_text("❌ <b>Тільки адміністратори можуть оголосити дефолт!</b>", parse_mode=ParseMode.HTML)
+            await update.message.reply_text("❌ Тільки адміни!", parse_mode=ParseMode.HTML)
             return
     except Exception: return
 
     chat_id = str(chat.id)
     save_scores(chat_id, 0)
-    try:
-        redis.set(f"{XP_KEY_PREFIX}{chat_id}", 0)
+    try: redis.set(f"{XP_KEY_PREFIX}{chat_id}", 0)
     except Exception: pass
 
     await update.message.reply_text(
-        "⚠️ <b>ОГОЛОШЕНО ТЕХНІЧНИЙ ДЕФОЛТ!</b>\n\n"
-        "Всі борги списані. Ранги обнулені.\n"
-        "⚡️ Потужність: <b>0</b>\n"
-        "🍫 Ранг: <b>ПОРОХОБОТИ</b>",
+        "⚠️ <b>ОГОЛОШЕНО ТЕХНІЧНИЙ ДЕФОЛТ!</b>\n\n⚡️ Потужність: <b>0</b>\n🍫 Ранг: <b>ПОРОХОБОТИ</b>",
         parse_mode=ParseMode.HTML
     )
 
-async def get_gif_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message.animation: return
-    await update.message.reply_text(f"🆔 <b>ID GIF:</b>\n<code>{update.message.animation.file_id}</code>", parse_mode=ParseMode.HTML)
+async def gif_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    chat = update.effective_chat
+    
+    # Проверка админа
+    try:
+        member = await chat.get_member(user.id)
+        if member.status not in ['creator', 'administrator']:
+            await update.message.reply_text("🚫 Только для админов!")
+            return
+    except Exception: return
 
-# --- ⭐️ ОБРАБОТЧИК СООБЩЕНИЙ + РАНДОМАЙЗЕР ⭐️ ---
+    current_status = context.bot_data.get('gif_mode', False)
+    new_status = not current_status
+    context.bot_data['gif_mode'] = new_status
+
+    status_text = "✅ <b>ВКЛЮЧЕН</b> (Кидай гифки)" if new_status else "🛑 <b>ВЫКЛЮЧЕН</b>"
+    await update.message.reply_text(f"🕵️‍♂️ Режим ловли ID: {status_text}", parse_mode=ParseMode.HTML)
+
+async def get_gif_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.bot_data.get('gif_mode', False):
+        return
+    if not update.message.animation: return
+    await update.message.reply_text(
+        f"🆔 <b>ID GIF:</b>\n<code>{update.message.animation.file_id}</code>",
+        parse_mode=ParseMode.HTML
+    )
+
+# --- ОБРАБОТЧИК СООБЩЕНИЙ ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
-    
     chat_id = str(update.message.chat_id) 
     
     # 1. ЛОГИКА РАНГОВ (Всегда +1 XP)
@@ -225,43 +220,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text=config["msg"], parse_mode=ParseMode.HTML)
     except Exception: pass
 
-    # 2. ЛОГИКА ИГРЫ (+/-)
+    # ⭐️ 2. ОТВЕТ НА РЕПЛАЙ БОТУ (НОВАЯ ФУНКЦИЯ)
+    if update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
+        try:
+            await update.message.reply_animation(animation=REPLY_TO_BOT_GIF_ID)
+        except Exception: pass
+
+    # 3. ЛОГИКА ИГРЫ
     if not update.message.text: return
     message_text = update.message.text.strip()
 
     match = re.search(r'([+-])\s*(\d+)', message_text)
     if match:
+        if not POSITIVE_GIF_IDS or not NEGATIVE_GIF_IDS: return 
+
         operator = match.group(1)
         try: value = int(match.group(2))
         except ValueError: return
 
-        # --- 🔥 НАСТРОЙКИ ШАНСОВ (УВЕЛИЧЕНЫ ДЛЯ МАЛОГО ЧАТА) 🔥 ---
-        # Событие происходит, если chance > 0.60 (40% вероятность)
         bonus_text = ""
         if operator == '+':
             chance = random.random()
-            
-            # 0.60 - 0.70 (10%) -> x2
             if 0.60 < chance <= 0.70:
                 value = value * 2
                 bonus_text = "\n🇺🇸 <b>ПЕРЕМОГА! МВФ дав транш! (x2)</b>"
-                
-            # 0.70 - 0.80 (10%) -> +500
             elif 0.70 < chance <= 0.80:
                 value = value + 500
                 bonus_text = "\n💰 <b>ПЕРЕМОГА! Знайшов заначку Януковича! (+500)</b>"
-                
-            # 0.80 - 0.90 (10%) -> /2
             elif 0.80 < chance <= 0.90:
                 value = max(1, int(value / 2))
                 bonus_text = "\n🤡 <b>ЗРАДА! Половина пішла на відкат... (/2)</b>"
-                
-            # 0.90 - 0.95 (5%) -> 0
             elif 0.90 < chance <= 0.95:
                 value = 0
                 bonus_text = "\n👮‍♂️ <b>ЗРАДА! Гроші заблоковані фінмоніторингом! (0)</b>"
-                
-            # 0.95 - 1.00 (5%) -> Инверсия
             elif chance > 0.95:
                 value = -value
                 bonus_text = "\n🔄 <b>ЗРАДА! Ти переплутав кнопки! (Інверсія)</b>"
@@ -285,15 +276,16 @@ def main_bot():
     
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("reset", reset_command))
+    application.add_handler(CommandHandler("gifmode", gif_mode_command))
+    
     application.add_handler(MessageHandler(filters.ANIMATION, get_gif_id))
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     
-    # Таймеры
     UKRAINE_TZ = pytz.timezone('Europe/Kyiv')
     application.job_queue.run_daily(send_evening_message, time=datetime.time(20, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
     application.job_queue.run_daily(send_morning_message, time=datetime.time(8, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
 
-    print("Бот 'ПОТУЖНИЙ' обновлен и запущен...")
+    print("Бот 'ПОТУЖНИЙ' (FINAL) запущен...")
     application.run_polling()
 
 if __name__ == '__main__':
@@ -304,4 +296,3 @@ if __name__ == '__main__':
         server_thread.daemon = True 
         server_thread.start()
         main_bot()
-    
