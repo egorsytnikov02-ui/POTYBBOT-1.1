@@ -35,7 +35,8 @@ def home():
     return "Бот 'ПОТУЖНИЙ' активний!"
 
 def run_web_server():
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+    # use_reloader=False — обязательно для запуска в потоке!
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=False, use_reloader=False)
 
 # --- Логирование ---
 logging.basicConfig(
@@ -284,8 +285,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- ЗАПУСК ---
 def main_bot():
-    job_queue = JobQueue()
-    application = Application.builder().token(TOKEN).job_queue(job_queue).build()
+    # Убираем ручное создание JobQueue, библиотека сделает это сама
+    application = Application.builder().token(TOKEN).build()
     
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("reset", reset_command))
@@ -295,6 +296,7 @@ def main_bot():
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     
     UKRAINE_TZ = pytz.timezone('Europe/Kyiv')
+    # Теперь обращаемся к job_queue через application
     application.job_queue.run_daily(send_evening_message, time=datetime.time(20, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
     application.job_queue.run_daily(send_morning_message, time=datetime.time(8, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
 
