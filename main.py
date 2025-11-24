@@ -35,7 +35,7 @@ def home():
     return "Бот 'ПОТУЖНИЙ' активний!"
 
 def run_web_server():
-    # 🔥 ИСПРАВЛЕНИЕ 1: Отключаем reloader, чтобы Flask не создавал лишних процессов
+    # use_reloader=False — чтобы Flask не создавал лишних процессов и не падал
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=False, use_reloader=False)
 
 # --- Логирование ---
@@ -233,8 +233,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.text: return
     message_text = update.message.text.strip()
 
-    # 🔥 ИСПРАВЛЕНИЕ: Игнорируем минусы внутри ссылок и текста
-    # (?:^|\s) -> Ищет совпадение либо в начале строки, либо после пробела.
+    # 🔥 ИСПРАВЛЕНИЕ: Игнорируем минусы внутри ссылок
+    # (?:^|\s) -> Ищет число только в начале или после пробела
     match = re.search(r'(?:^|\s)([+-])\s*(\d+)', message_text)
     
     if match:
@@ -244,9 +244,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: value = int(match.group(2))
         except ValueError: return
 
-        # 🔥 ИСПРАВЛЕНИЕ: Ограничиваем ставку до 10
+        # 🔥 НОВОЕ: Если больше 10 - ругаемся и ничего не делаем
         if value > 10:
-            value = 10
+            await update.message.reply_text(
+                "🛑 <b>А харя не трісне?</b>\nМВФ стільки грошей не виділив. Бюджет урізано, ліміт — 10 очок в одні руки. Май совість!",
+                parse_mode=ParseMode.HTML
+            )
+            return # ⛔️ Прерываем выполнение функции, очки НЕ начисляются
 
         bonus_text = ""
         # 🔥 ЛОГИКА ДЛЯ ПЛЮСА
@@ -292,7 +296,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- ЗАПУСК ---
 def main_bot():
-    # 🔥 ИСПРАВЛЕНИЕ 2: Убрано ручное создание JobQueue. Библиотека создаст его сама.
+    # Создаем бота (JobQueue создастся автоматически)
     application = Application.builder().token(TOKEN).build()
     
     application.add_handler(CommandHandler("status", status_command))
@@ -303,7 +307,6 @@ def main_bot():
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     
     UKRAINE_TZ = pytz.timezone('Europe/Kyiv')
-    # Используем встроенный application.job_queue
     application.job_queue.run_daily(send_evening_message, time=datetime.time(20, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
     application.job_queue.run_daily(send_morning_message, time=datetime.time(8, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
 
