@@ -11,7 +11,7 @@ from flask import Flask
 from upstash_redis import Redis
 
 from telegram import Update
-from telegram.ext import Application, MessageHandler, CommandHandler, ContextTypes, filters, JobQueue
+from telegram.ext import Application, MessageHandler, CommandHandler, ContextTypes, filters
 from telegram.constants import ParseMode
 
 # --- Настройки бота (ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ) ---
@@ -35,7 +35,7 @@ def home():
     return "Бот 'ПОТУЖНИЙ' активний!"
 
 def run_web_server():
-    # use_reloader=False — обязательно для запуска в потоке!
+    # 🔥 ИСПРАВЛЕНИЕ 1: Отключаем reloader, чтобы Flask не создавал лишних процессов
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=False, use_reloader=False)
 
 # --- Логирование ---
@@ -233,9 +233,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.text: return
     message_text = update.message.text.strip()
 
-    # 🔥 ИСПРАВЛЕНИЕ 1: Умная регулярка
-    # Ищет совпадение только если это НАЧАЛО строки (^) ИЛИ перед знаком есть ПРОБЕЛ (\s)
-    # Это игнорирует минусы внутри ссылок
+    # 🔥 ИСПРАВЛЕНИЕ: Игнорируем минусы внутри ссылок и текста
+    # (?:^|\s) -> Ищет совпадение либо в начале строки, либо после пробела.
     match = re.search(r'(?:^|\s)([+-])\s*(\d+)', message_text)
     
     if match:
@@ -245,80 +244,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: value = int(match.group(2))
         except ValueError: return
 
-        # 🔥 ИСПРАВЛЕНИЕ 2: Ограничение макс. 10 очков
+        # 🔥 ИСПРАВЛЕНИЕ: Ограничиваем ставку до 10
         if value > 10:
             value = 10
-
-        bonus_text = ""
-        # 🔥 ЛОГИКА ДЛЯ ПЛЮСА
-        if operator == '+':
-            chance = random.random()
-            if 0.60 < chance <= 0.70:
-                value = value * 2
-                bonus_text = "\n🇺🇸 <b>ПЕРЕМОГА! МВФ дав транш! (x2)</b>"
-            elif 0.70 < chance <= 0.80:
-                value = value + 20
-                bonus_text = "\n🍞 <b>ПЕРЕМОГА! Знайшов заначку Януковича! Але це просто сухарі... (+20)</b>"
-            elif 0.80 < chance <= 0.90:
-                value = max(1, int(value / 2))
-                bonus_text = "\n🤡 <b>ЗРАДА! Половина пішла на відкат... (/2)</b>"
-            elif 0.90 < chance <= 0.95:
-                value = 0
-                bonus_text = "\n👮‍♂️ <b>ЗРАДА! Рахунки заблоковані фінмоніторингом! (0)</b>"
-            elif chance > 0.95:
-                # ШТРАФ ОТ ГЕТМАНЦЕВА
-                value = -50
-                bonus_text = "\n📉 <b>ЗРАДА! Гетманцев ввів податок на твої повідомлення! (-50)</b>"
-
-        current_score = load_scores(chat_id) 
-        # Если оператор +, прибавляем (но штраф -50 все равно вычтется, так как value отрицательный)
-        new_score = current_score + value if operator == '+' else current_score - value
-        
-        # Выбор гифки
-        if operator == '+':
-            if value < 0: # Если выпал штраф, шлем негативную гифку
-                gif_id = random.choice(NEGATIVE_GIF_IDS)
-            else:
-                gif_id = random.choice(POSITIVE_GIF_IDS)
-        else:
-            gif_id = random.choice(NEGATIVE_GIF_IDS)
-            
-        save_scores(chat_id, new_score) 
-
-        reply_text = f"🏆 <b>Рахунок потужності:</b> <code>{new_score}</code>{bonus_text}"
-        try:
-            await update.message.reply_animation(animation=gif_id, caption=reply_text, parse_mode=ParseMode.HTML)
-        except Exception:
-            await update.message.reply_text(reply_text, parse_mode=ParseMode.HTML)
-    
-    # 1. ЛОГИКА РАНГОВ
-    try:
-        new_xp = redis.incr(f"{XP_KEY_PREFIX}{chat_id}")
-        if new_xp in RANK_THRESHOLDS:
-            config = RANK_THRESHOLDS[new_xp]
-            await context.bot.send_message(chat_id=chat_id, text=config["msg"], parse_mode=ParseMode.HTML)
-    except Exception: pass
-
-    # ⭐️ 2. ОТВЕТ НА РЕПЛАЙ БОТУ (С ОСКОРБЛЕНИЕМ)
-    if update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
-        try:
-            await update.message.reply_animation(
-                animation=REPLY_TO_BOT_GIF_ID,
-                caption="НЕ ТРОГАЙ МЕНЯ , КУСОК МЯСА"
-            )
-        except Exception: pass
-
-    # 3. ЛОГИКА ИГРЫ
-    if not update.message.text: return
-    message_text = update.message.text.strip()
-
-    match = re.search(r'([+-])\s*(\d+)', message_text)
-    if match:
-        if not POSITIVE_GIF_IDS or not NEGATIVE_GIF_IDS: return 
-
-        operator = match.group(1)
-        try: value = int(match.group(2))
-        except ValueError: return
 
         bonus_text = ""
         # 🔥 ЛОГИКА ДЛЯ ПЛЮСА
@@ -364,7 +292,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- ЗАПУСК ---
 def main_bot():
-    # Убираем ручное создание JobQueue, библиотека сделает это сама
+    # 🔥 ИСПРАВЛЕНИЕ 2: Убрано ручное создание JobQueue. Библиотека создаст его сама.
     application = Application.builder().token(TOKEN).build()
     
     application.add_handler(CommandHandler("status", status_command))
@@ -375,7 +303,7 @@ def main_bot():
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     
     UKRAINE_TZ = pytz.timezone('Europe/Kyiv')
-    # Теперь обращаемся к job_queue через application
+    # Используем встроенный application.job_queue
     application.job_queue.run_daily(send_evening_message, time=datetime.time(20, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
     application.job_queue.run_daily(send_morning_message, time=datetime.time(8, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
 
