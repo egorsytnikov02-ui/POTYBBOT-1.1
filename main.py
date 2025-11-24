@@ -14,18 +14,18 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, ContextTypes, filters
 from telegram.constants import ParseMode
 
-# --- Настройки бота (ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ) ---
+# --- Налаштування бота (ЗІ ЗМІННИХ ОТОЧЕННЯ) ---
 TOKEN = os.environ.get('TOKEN')
 UPSTASH_URL = os.environ.get('UPSTASH_REDIS_REST_URL')
 UPSTASH_TOKEN = os.environ.get('UPSTASH_REDIS_REST_TOKEN')
 
-# ⭐️ Подключение к Базе Данных (Redis)
+# ⭐️ Підключення до Бази Даних (Redis)
 try:
     redis = Redis(url=UPSTASH_URL, token=UPSTASH_TOKEN)
     logger = logging.getLogger(__name__)
-    logger.info("Успешное подключение к Upstash (Redis)!")
+    logger.info("Успішне підключення до Upstash (Redis)!")
 except Exception as e:
-    print(f"Критическая ошибка: Не удалось подключиться к Upstash (Redis)! {e}")
+    print(f"Критична помилка: Не вдалося підключитися до Upstash (Redis)! {e}")
     exit()
 
 # --- Веб-сервер (Для UptimeRobot / Cron-job) ---
@@ -35,20 +35,19 @@ def home():
     return "Бот 'ПОТУЖНИЙ' активний!"
 
 def run_web_server():
-    # use_reloader=False — лечение ошибки 503
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=False, use_reloader=False)
 
-# --- Логирование ---
+# --- Логування ---
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-# --- КОНСТАНТЫ REDIS ---
-SCORES_KEY = "potuzhniy_scores"  # Для игры +/-
-XP_KEY_PREFIX = "chat_xp:"       # Для рангов (счетчик сообщений)
+# --- КОНСТАНТИ REDIS ---
+SCORES_KEY = "potuzhniy_scores"  # Для гри +/-
+XP_KEY_PREFIX = "chat_xp:"       # Для рангів (лічильник повідомлень)
 
-# --- ⭐️ НАСТРОЙКИ РАНГОВ ⭐️ ---
+# --- ⭐️ НАЛАШТУВАННЯ РАНГІВ ⭐️ ---
 RANK_THRESHOLDS = {
     30: {
         "title": "ПОТУЖНІ ГРОМАДЯНИ 💪",
@@ -68,7 +67,7 @@ RANK_THRESHOLDS = {
     }
 }
 
-# --- 🔥 ФРАЗЫ ДЛЯ ОТВЕТА БОТА 🔥 ---
+# --- 🔥 ФРАЗИ ДЛЯ ВІДПОВІДІ БОТА 🔥 ---
 BOT_REPLY_PHRASES = [
     # S.T.A.L.K.E.R.
     "Іди своєю дорогою, сталкер. Тут немає артефактів для тебе.",
@@ -77,13 +76,13 @@ BOT_REPLY_PHRASES = [
     "Ти шо, безсмертний? Збереження давно робив?",
     "НЕ ТРОГАЙ МЕНЯ, КУСОК МЯСА!",
     
-    # Бюрократия / ТЦК
+    # Бюрократія / ТЦК
     "Ти так сміливо пишеш... А дані в «Резерв+» оновив?",
     "Громадянине, пред'явіть військовий квиток або штрих-код!",
     "Я не бачу твоєї електронної декларації. Розмова закінчена.",
     "Запит відхилено. Ти забув вкласти хабар у повідомлення.",
     
-    # Энергетика / Политика / Мемы
+    # Енергетика / Політика / Меми
     "Зараз подзвоню в ДТЕК і тебе відключать поза чергою.",
     "У нас дефіцит потужності в енергосистемі, не витрачай мої байти дарма.",
     "МВФ не схвалює твою поведінку. Транш скасовано.",
@@ -92,7 +91,7 @@ BOT_REPLY_PHRASES = [
     "Це провокація! Я буду скаржитись в ООН (але їм пофіг)."
 ]
 
-# --- СПИСКИ ГИФОК ---
+# --- СПИСКИ ГІФОК ---
 POSITIVE_GIF_IDS = [
     'CgACAgIAAyEFAATIovxHAAIDDWkcMy0m8C5AL5UW9vaBZ0JIUHhsAAJkhwACYjrZSAOnzOZuDDU6NgQ',
     'CgACAgQAAyEFAATIovxHAAIDEmkcMy1wQjRBAluj_AXzdQPqkVd0AALZCwACRO1JUBTOazJVNz4lNgQ',
@@ -121,10 +120,10 @@ EVENING_GIF_IDS = [
     'CgACAgQAAyEFAATIovxHAAIDC2kcMDXYBOfejZRHnUImdDOTWgT_AAItBQACasyUUrsEDYn5dujrNgQ'
 ]
 
-# Гифка для реплая боту (остается та же)
+# Гіфка для реплаю боту
 REPLY_TO_BOT_GIF_ID = 'CgACAgIAAyEFAATIovxHAAIBSmkbMaIuOb-D2BxGZdpSf03s1IDcAAJAgwACSL3ZSLtCpogi_5_INgQ'
 
-# --- Вспомогательные функции ---
+# --- Допоміжні функції ---
 def load_scores(chat_id):
     try:
         score = redis.hget(SCORES_KEY, chat_id)
@@ -143,13 +142,13 @@ def get_rank_name(xp):
     elif 50 <= xp < 60: return "ХАРАКТЕРНИКИ ⚔️"
     else: return "ЗЕЛЕБОБИ 🟢"
 
-# --- Ежедневные задачи ---
+# --- Щоденні задачі ---
 async def send_evening_message(context: ContextTypes.DEFAULT_TYPE):
     if not EVENING_GIF_IDS: return
     try:
         all_chats = redis.hgetall(SCORES_KEY)
         if not all_chats: return
-        text = "Добрий вечір ,як у всех з ПОТУЖНІСТЮ ?"
+        text = "Добрий вечір, як у всіх з ПОТУЖНІСТЮ?"
         for chat_id in all_chats.keys():
             try:
                 await context.bot.send_animation(chat_id=chat_id, animation=random.choice(EVENING_GIF_IDS), caption=text)
@@ -161,14 +160,14 @@ async def send_morning_message(context: ContextTypes.DEFAULT_TYPE):
     try:
         all_chats = redis.hgetall(SCORES_KEY)
         if not all_chats: return
-        text = "Добрий ранок , як у вас з ПОТУЖНІСТЮ"
+        text = "Добрий ранок, як у вас з ПОТУЖНІСТЮ?"
         for chat_id in all_chats.keys():
             try:
                 await context.bot.send_animation(chat_id=chat_id, animation=random.choice(MORNING_GIF_IDS), caption=text)
             except Exception: pass
     except Exception: pass
 
-# --- КОМАНДЫ ---
+# --- КОМАНДИ ---
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     try:
@@ -211,7 +210,7 @@ async def gif_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         member = await chat.get_member(user.id)
         if member.status not in ['creator', 'administrator']:
-            await update.message.reply_text("🚫 Только для админов!")
+            await update.message.reply_text("🚫 Тільки для адмінів!")
             return
     except Exception: return
 
@@ -219,8 +218,8 @@ async def gif_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_status = not current_status
     context.bot_data['gif_mode'] = new_status
 
-    status_text = "✅ <b>ВКЛЮЧЕН</b> (Кидай гифки)" if new_status else "🛑 <b>ВЫКЛЮЧЕН</b>"
-    await update.message.reply_text(f"🕵️‍♂️ Режим ловли ID: {status_text}", parse_mode=ParseMode.HTML)
+    status_text = "✅ <b>УВІМКНЕНО</b> (Кидай гіфки)" if new_status else "🛑 <b>ВИМКНЕНО</b>"
+    await update.message.reply_text(f"🕵️‍♂️ Режим ловлі ID: {status_text}", parse_mode=ParseMode.HTML)
 
 async def get_gif_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.bot_data.get('gif_mode', False):
@@ -231,12 +230,12 @@ async def get_gif_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML
     )
 
-# --- ОБРАБОТЧИК СООБЩЕНИЙ ---
+# --- ОБРОБНИК ПОВІДОМЛЕНЬ ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
     chat_id = str(update.message.chat_id) 
     
-    # 1. ЛОГИКА РАНГОВ
+    # 1. ЛОГІКА РАНГІВ
     try:
         new_xp = redis.incr(f"{XP_KEY_PREFIX}{chat_id}")
         if new_xp in RANK_THRESHOLDS:
@@ -244,10 +243,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text=config["msg"], parse_mode=ParseMode.HTML)
     except Exception: pass
 
-    # ⭐️ 2. ОТВЕТ НА РЕПЛАЙ БОТУ (РАНДОМНЫЕ ФРАЗЫ)
+    # ⭐️ 2. ВІДПОВІДЬ НА РЕПЛАЙ БОТУ (РАНДОМНІ ФРАЗИ)
     if update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
         try:
-            # 🔥 Выбираем случайную фразу из списка
             random_phrase = random.choice(BOT_REPLY_PHRASES)
             await update.message.reply_animation(
                 animation=REPLY_TO_BOT_GIF_ID,
@@ -255,11 +253,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception: pass
 
-    # 3. ЛОГИКА ИГРЫ
+    # 3. ЛОГІКА ГРИ
     if not update.message.text: return
     message_text = update.message.text.strip()
 
-    # 🔥 ИСПРАВЛЕНИЕ: Игнорируем минусы внутри ссылок
+    # 🔥 Регулярка для пошуку числа (на початку або після пробілу)
     match = re.search(r'(?:^|\s)([+-])\s*(\d+)', message_text)
     
     if match:
@@ -269,7 +267,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: value = int(match.group(2))
         except ValueError: return
 
-        # 🔥 ИСПРАВЛЕНИЕ: Блокируем, если больше 10
+        # 🚜 ПАСХАЛКА "300" (ПОВОРОЗНЮК)
+        # Перевіряємо саме число 300 перед лімітом у 10
+        if value == 300:
+            await update.message.reply_text(
+                "🚜 <b>Я якраз на тракторі, зара приїду до тебе і буде бій.</b>",
+                parse_mode=ParseMode.HTML
+            )
+            return # Зупиняємо функцію, очки НЕ нараховуються
+
+        # 🔥 Блокування, якщо більше 10
         if value > 10:
             await update.message.reply_text(
                 "🛑 <b>А харя не трісне?</b>\nМВФ стільки грошей не виділив. Бюджет урізано, ліміт — 10 очок в одні руки. Май совість!",
@@ -278,7 +285,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return 
 
         bonus_text = ""
-        # 🔥 ЛОГИКА ДЛЯ ПЛЮСА
+        # 🔥 ЛОГІКА ДЛЯ ПЛЮСА
         if operator == '+':
             chance = random.random()
             if 0.60 < chance <= 0.70:
@@ -294,7 +301,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 value = 0
                 bonus_text = "\n👮‍♂️ <b>ЗРАДА! Рахунки заблоковані фінмоніторингом! (0)</b>"
             elif chance > 0.95:
-                # ШТРАФ ОТ ГЕТМАНЦЕВА
+                # ШТРАФ ВІД ГЕТМАНЦЕВА
                 value = -50
                 bonus_text = "\n📉 <b>ЗРАДА! Гетманцев ввів податок на твої повідомлення! (-50)</b>"
 
@@ -302,9 +309,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         new_score = current_score + value if operator == '+' else current_score - value
         
-        # Выбор гифки
+        # Вибір гіфки
         if operator == '+':
-            if value < 0: # Если выпал штраф
+            if value < 0: # Якщо випав штраф
                 gif_id = random.choice(NEGATIVE_GIF_IDS)
             else:
                 gif_id = random.choice(POSITIVE_GIF_IDS)
@@ -334,12 +341,12 @@ def main_bot():
     application.job_queue.run_daily(send_evening_message, time=datetime.time(20, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
     application.job_queue.run_daily(send_morning_message, time=datetime.time(8, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
 
-    print("Бот 'ПОТУЖНИЙ' запущен...")
+    print("Бот 'ПОТУЖНИЙ' запущено...")
     application.run_polling()
 
 if __name__ == '__main__':
     if not TOKEN or not UPSTASH_URL:
-        print("КРИТИЧЕСКАЯ ОШИБКА: Нет переменных окружения!")
+        print("КРИТИЧНА ПОМИЛКА: Немає змінних оточення!")
     else:
         server_thread = Thread(target=run_web_server)
         server_thread.daemon = True 
