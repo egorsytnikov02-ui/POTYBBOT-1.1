@@ -35,7 +35,7 @@ def home():
     return "Бот 'ПОТУЖНИЙ' активний!"
 
 def run_web_server():
-    # use_reloader=False — чтобы Flask не создавал лишних процессов и не падал
+    # use_reloader=False — лечение ошибки 503
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=False, use_reloader=False)
 
 # --- Логирование ---
@@ -68,6 +68,30 @@ RANK_THRESHOLDS = {
     }
 }
 
+# --- 🔥 ФРАЗЫ ДЛЯ ОТВЕТА БОТА 🔥 ---
+BOT_REPLY_PHRASES = [
+    # S.T.A.L.K.E.R.
+    "Іди своєю дорогою, сталкер. Тут немає артефактів для тебе.",
+    "Ще одне слово, і я тебе в «Холодець» кину.",
+    "Не фони. Мій лічильник Гейгера тріщить від твого крінжу.",
+    "Ти шо, безсмертний? Збереження давно робив?",
+    "НЕ ТРОГАЙ МЕНЯ, КУСОК МЯСА!",
+    
+    # Бюрократия / ТЦК
+    "Ти так сміливо пишеш... А дані в «Резерв+» оновив?",
+    "Громадянине, пред'явіть військовий квиток або штрих-код!",
+    "Я не бачу твоєї електронної декларації. Розмова закінчена.",
+    "Запит відхилено. Ти забув вкласти хабар у повідомлення.",
+    
+    # Энергетика / Политика / Мемы
+    "Зараз подзвоню в ДТЕК і тебе відключать поза чергою.",
+    "У нас дефіцит потужності в енергосистемі, не витрачай мої байти дарма.",
+    "МВФ не схвалює твою поведінку. Транш скасовано.",
+    "Вийди звідси, розбійник! Ти мене не чуєш?",
+    "Я тобі нічого не винен. Я ж не лох якийсь.",
+    "Це провокація! Я буду скаржитись в ООН (але їм пофіг)."
+]
+
 # --- СПИСКИ ГИФОК ---
 POSITIVE_GIF_IDS = [
     'CgACAgIAAyEFAATIovxHAAIDDWkcMy0m8C5AL5UW9vaBZ0JIUHhsAAJkhwACYjrZSAOnzOZuDDU6NgQ',
@@ -97,7 +121,7 @@ EVENING_GIF_IDS = [
     'CgACAgQAAyEFAATIovxHAAIDC2kcMDXYBOfejZRHnUImdDOTWgT_AAItBQACasyUUrsEDYn5dujrNgQ'
 ]
 
-# Гифка для реплая боту
+# Гифка для реплая боту (остается та же)
 REPLY_TO_BOT_GIF_ID = 'CgACAgIAAyEFAATIovxHAAIBSmkbMaIuOb-D2BxGZdpSf03s1IDcAAJAgwACSL3ZSLtCpogi_5_INgQ'
 
 # --- Вспомогательные функции ---
@@ -220,12 +244,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text=config["msg"], parse_mode=ParseMode.HTML)
     except Exception: pass
 
-    # ⭐️ 2. ОТВЕТ НА РЕПЛАЙ БОТУ (С ОСКОРБЛЕНИЕМ)
+    # ⭐️ 2. ОТВЕТ НА РЕПЛАЙ БОТУ (РАНДОМНЫЕ ФРАЗЫ)
     if update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
         try:
+            # 🔥 Выбираем случайную фразу из списка
+            random_phrase = random.choice(BOT_REPLY_PHRASES)
             await update.message.reply_animation(
                 animation=REPLY_TO_BOT_GIF_ID,
-                caption="НЕ ТРОГАЙ МЕНЯ , КУСОК МЯСА"
+                caption=random_phrase
             )
         except Exception: pass
 
@@ -234,7 +260,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text.strip()
 
     # 🔥 ИСПРАВЛЕНИЕ: Игнорируем минусы внутри ссылок
-    # (?:^|\s) -> Ищет число только в начале или после пробела
     match = re.search(r'(?:^|\s)([+-])\s*(\d+)', message_text)
     
     if match:
@@ -244,13 +269,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: value = int(match.group(2))
         except ValueError: return
 
-        # 🔥 НОВОЕ: Если больше 10 - ругаемся и ничего не делаем
+        # 🔥 ИСПРАВЛЕНИЕ: Блокируем, если больше 10
         if value > 10:
             await update.message.reply_text(
                 "🛑 <b>А харя не трісне?</b>\nМВФ стільки грошей не виділив. Бюджет урізано, ліміт — 10 очок в одні руки. Май совість!",
                 parse_mode=ParseMode.HTML
             )
-            return # ⛔️ Прерываем выполнение функции, очки НЕ начисляются
+            return 
 
         bonus_text = ""
         # 🔥 ЛОГИКА ДЛЯ ПЛЮСА
@@ -274,12 +299,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 bonus_text = "\n📉 <b>ЗРАДА! Гетманцев ввів податок на твої повідомлення! (-50)</b>"
 
         current_score = load_scores(chat_id) 
-        # Если оператор +, прибавляем (но штраф -50 все равно вычтется)
+        
         new_score = current_score + value if operator == '+' else current_score - value
         
         # Выбор гифки
         if operator == '+':
-            if value < 0: # Если выпал штраф, шлем негативную гифку
+            if value < 0: # Если выпал штраф
                 gif_id = random.choice(NEGATIVE_GIF_IDS)
             else:
                 gif_id = random.choice(POSITIVE_GIF_IDS)
@@ -296,7 +321,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- ЗАПУСК ---
 def main_bot():
-    # Создаем бота (JobQueue создастся автоматически)
     application = Application.builder().token(TOKEN).build()
     
     application.add_handler(CommandHandler("status", status_command))
