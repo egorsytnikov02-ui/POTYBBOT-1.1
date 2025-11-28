@@ -7,12 +7,29 @@ import random
 
 from threading import Thread
 from flask import Flask
+from waitress import serve # 👈 ВАЖНО: Новый импорт
 
 from upstash_redis import Redis
 
 from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, ContextTypes, filters
 from telegram.constants import ParseMode
+
+# --- Налаштування логування (Фільтр токена) ---
+class TokenFilter(logging.Filter):
+    def filter(self, record):
+        message = record.getMessage()
+        if os.environ.get('TOKEN') in message:
+            return False # Скрываем логи с токеном
+        return True
+
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+# Применяем фильтр ко всем логгерам
+for handler in logging.root.handlers:
+    handler.addFilter(TokenFilter())
 
 # --- Налаштування бота (ЗІ ЗМІННИХ ОТОЧЕННЯ) ---
 TOKEN = os.environ.get('TOKEN')
@@ -35,17 +52,13 @@ def home():
     return "Бот 'ПОТУЖНИЙ' активний!"
 
 def run_web_server():
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=False, use_reloader=False)
-
-# --- Логування ---
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+    port = int(os.environ.get('PORT', 8080))
+    # 🔥 ИСПОЛЬЗУЕМ WAITRESS ВМЕСТО app.run
+    serve(app, host="0.0.0.0", port=port)
 
 # --- КОНСТАНТИ REDIS ---
-SCORES_KEY = "potuzhniy_scores"  # Для гри +/-
-XP_KEY_PREFIX = "chat_xp:"       # Для рангів (лічильник повідомлень)
+SCORES_KEY = "potuzhniy_scores"
+XP_KEY_PREFIX = "chat_xp:"
 
 # --- ⭐️ НАЛАШТУВАННЯ РАНГІВ ⭐️ ---
 RANK_THRESHOLDS = {
@@ -69,20 +82,15 @@ RANK_THRESHOLDS = {
 
 # --- 🔥 ФРАЗИ ДЛЯ ВІДПОВІДІ БОТА 🔥 ---
 BOT_REPLY_PHRASES = [
-    # S.T.A.L.K.E.R.
     "Іди своєю дорогою, сталкер. Тут немає артефактів для тебе.",
     "Ще одне слово, і я тебе в «Холодець» кину.",
     "Не фони. Мій лічильник Гейгера тріщить від твого крінжу.",
     "Ти шо, безсмертний? Збереження давно робив?",
     "НЕ ТРОГАЙ МЕНЯ, КУСОК МЯСА!",
-    
-    # Бюрократія / ТЦК
     "Ти так сміливо пишеш... А дані в «Резерв+» оновив?",
     "Громадянине, пред'явіть військовий квиток або штрих-код!",
     "Я не бачу твоєї електронної декларації. Розмова закінчена.",
     "Запит відхилено. Ти забув вкласти хабар у повідомлення.",
-    
-    # Енергетика / Політика / Меми
     "Зараз подзвоню в ДТЕК і тебе відключать поза чергою.",
     "У нас дефіцит потужності в енергосистемі, не витрачай мої байти дарма.",
     "МВФ не схвалює твою поведінку. Транш скасовано.",
@@ -120,7 +128,6 @@ EVENING_GIF_IDS = [
     'CgACAgQAAyEFAATIovxHAAIDC2kcMDXYBOfejZRHnUImdDOTWgT_AAItBQACasyUUrsEDYn5dujrNgQ'
 ]
 
-# Гіфка для реплаю боту
 REPLY_TO_BOT_GIF_ID = 'CgACAgIAAyEFAATIovxHAAIBSmkbMaIuOb-D2BxGZdpSf03s1IDcAAJAgwACSL3ZSLtCpogi_5_INgQ'
 
 # --- Допоміжні функції ---
@@ -206,7 +213,6 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def gif_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
-    
     try:
         member = await chat.get_member(user.id)
         if member.status not in ['creator', 'administrator']:
@@ -243,7 +249,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text=config["msg"], parse_mode=ParseMode.HTML)
     except Exception: pass
 
-    # ⭐️ 2. ВІДПОВІДЬ НА РЕПЛАЙ БОТУ (РАНДОМНІ ФРАЗИ)
+    # 2. ВІДПОВІДЬ НА РЕПЛАЙ БОТУ
     if update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
         try:
             random_phrase = random.choice(BOT_REPLY_PHRASES)
@@ -257,7 +263,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.text: return
     message_text = update.message.text.strip()
 
-    # 🔥 Регулярка для пошуку числа (на початку або після пробілу)
     match = re.search(r'(?:^|\s)([+-])\s*(\d+)', message_text)
     
     if match:
@@ -267,16 +272,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: value = int(match.group(2))
         except ValueError: return
 
-        # 🚜 ПАСХАЛКА "300" (ПОВОРОЗНЮК)
-        # Перевіряємо саме число 300 перед лімітом у 10
         if value == 300:
             await update.message.reply_text(
                 "🚜 <b>Я якраз на тракторі, зара приїду до тебе і буде бій.</b>",
                 parse_mode=ParseMode.HTML
             )
-            return # Зупиняємо функцію, очки НЕ нараховуються
+            return 
 
-        # 🔥 Блокування, якщо більше 10
         if value > 10:
             await update.message.reply_text(
                 "🛑 <b>А харя не трісне?</b>\nМВФ стільки грошей не виділив. Бюджет урізано, ліміт — 10 очок в одні руки. Май совість!",
@@ -285,7 +287,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return 
 
         bonus_text = ""
-        # 🔥 ЛОГІКА ДЛЯ ПЛЮСА
         if operator == '+':
             chance = random.random()
             if 0.60 < chance <= 0.70:
@@ -301,17 +302,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 value = 0
                 bonus_text = "\n👮‍♂️ <b>ЗРАДА! Рахунки заблоковані фінмоніторингом! (0)</b>"
             elif chance > 0.95:
-                # ШТРАФ ВІД ГЕТМАНЦЕВА
                 value = -50
                 bonus_text = "\n📉 <b>ЗРАДА! Гетманцев ввів податок на твої повідомлення! (-50)</b>"
 
         current_score = load_scores(chat_id) 
-        
         new_score = current_score + value if operator == '+' else current_score - value
         
-        # Вибір гіфки
         if operator == '+':
-            if value < 0: # Якщо випав штраф
+            if value < 0:
                 gif_id = random.choice(NEGATIVE_GIF_IDS)
             else:
                 gif_id = random.choice(POSITIVE_GIF_IDS)
@@ -352,3 +350,4 @@ if __name__ == '__main__':
         server_thread.daemon = True 
         server_thread.start()
         main_bot()
+    
