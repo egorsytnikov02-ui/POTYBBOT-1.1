@@ -46,7 +46,7 @@ except Exception as e:
     exit()
 
 # --- Веб-сервер (Для UptimeRobot / Cron-job) ---
-app = Flask('')
+app = Flask(__name__)
 @app.route('/')
 def home():
     return "Бот 'ПОТУЖНИЙ' активний!"
