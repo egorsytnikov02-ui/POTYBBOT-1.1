@@ -5,3 +5,4 @@ upstash-redis
 APScheduler
 aiogram
 waitress
+feedparser
