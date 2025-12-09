@@ -3,11 +3,12 @@ import os
 import re
 import datetime
 import pytz
-import random 
+import random
+import feedparser # 👈 Библиотека для чтения новостей Steam
 
 from threading import Thread
 from flask import Flask
-from waitress import serve # Профессиональный сервер
+from waitress import serve
 
 from upstash_redis import Redis
 
@@ -19,7 +20,8 @@ from telegram.constants import ParseMode
 class TokenFilter(logging.Filter):
     def filter(self, record):
         message = record.getMessage()
-        if os.environ.get('TOKEN') in message:
+        token = os.environ.get('TOKEN')
+        if token and token in message:
             return False 
         return True
 
@@ -29,6 +31,7 @@ logging.basicConfig(
 )
 for handler in logging.root.handlers:
     handler.addFilter(TokenFilter())
+logger = logging.getLogger(__name__)
 
 # --- Настройки ---
 TOKEN = os.environ.get('TOKEN')
@@ -38,14 +41,12 @@ UPSTASH_TOKEN = os.environ.get('UPSTASH_REDIS_REST_TOKEN')
 # ⭐️ Подключение к Redis
 try:
     redis = Redis(url=UPSTASH_URL, token=UPSTASH_TOKEN)
-    logger = logging.getLogger(__name__)
     logger.info("Успішне підключення до Upstash (Redis)!")
 except Exception as e:
     print(f"Критична помилка: Не вдалося підключитися до Upstash (Redis)! {e}")
     exit()
 
 # --- Веб-сервер (Waitress) ---
-# Исправлено: __name__ вместо пустых кавычек
 app = Flask(__name__)
 
 @app.route('/')
@@ -54,28 +55,27 @@ def home():
 
 def run_web_server():
     port = int(os.environ.get('PORT', 8080))
-    # Запуск через Waitress (стабильно, без ошибки 503)
     serve(app, host="0.0.0.0", port=port)
 
 # --- КОНСТАНТЫ ---
 SCORES_KEY = "potuzhniy_scores"
+STEAM_LAST_ID_KEY = "steam_last_news_id" # Ключ для хранения ID последней новости
+STEAM_RSS_URL = "https://store.steampowered.com/feeds/news.xml" # Лента новостей
+
+# Ключевые слова для поиска скидок (регистр не важен)
+STEAM_KEYWORDS = ['sale', 'fest', 'festival', 'promotion', 'summer', 'winter', 'spring', 'autumn', 'знижки', 'розпродаж']
 
 # --- 🔥 ФРАЗЫ ДЛЯ ОТВЕТА БОТА (REPLY) 🔥 ---
 BOT_REPLY_PHRASES = [
-    # S.T.A.L.K.E.R.
     "Іди своєю дорогою, сталкер. Тут немає артефактів для тебе.",
     "Ще одне слово, і я тебе в «Холодець» кину.",
     "Не фони. Мій лічильник Гейгера тріщить від твого крінжу.",
     "Ти шо, безсмертний? Збереження давно робив?",
     "НЕ ТРОГАЙ МЕНЯ, КУСОК МЯСА!",
-    
-    # Бюрократия
     "Ти так сміливо пишеш... А дані в «Резерв+» оновив?",
     "Громадянине, пред'явіть військовий квиток або штрих-код!",
     "Я не бачу твоєї електронної декларації. Розмова закінчена.",
     "Запит відхилено. Ти забув вкласти хабар у повідомлення.",
-    
-    # Мемы
     "Зараз подзвоню в ДТЕК і тебе відключать поза чергою.",
     "У нас дефіцит потужності в енергосистемі, не витрачай мої байти дарма.",
     "МВФ не схвалює твою поведінку. Транш скасовано.",
@@ -127,13 +127,60 @@ def save_scores(chat_id, new_score):
         redis.hset(SCORES_KEY, chat_id, str(new_score))
     except Exception: pass
 
-# --- Ежедневные сообщения (Заглушки под будущие анекдоты) ---
+# --- 🎮 STEAM MONITORING ---
+async def check_steam_sales(context: ContextTypes.DEFAULT_TYPE):
+    logger.info("🎮 Проверка новостей Steam...")
+    try:
+        feed = feedparser.parse(STEAM_RSS_URL)
+        if not feed.entries:
+            return
+
+        # Берем самую свежую новость
+        latest_entry = feed.entries[0]
+        entry_id = latest_entry.id
+        title = latest_entry.title
+        link = latest_entry.link
+
+        # Проверяем, не отправляли ли мы её уже
+        last_sent_id = redis.get(STEAM_LAST_ID_KEY)
+        if last_sent_id == entry_id:
+            logger.info("Новых событий в Steam нет.")
+            return
+
+        # Проверяем ключевые слова
+        found_keyword = any(word in title.lower() for word in STEAM_KEYWORDS)
+        
+        if found_keyword:
+            logger.info(f"🔥 Найдено событие Steam: {title}")
+            
+            # Сохраняем ID, чтобы не спамить
+            redis.set(STEAM_LAST_ID_KEY, entry_id)
+
+            # Рассылаем по всем активным чатам
+            all_chats = redis.hgetall(SCORES_KEY)
+            if not all_chats: return
+
+            text = f"🔥 <b>У Габена нова подія!</b>\n\n🎮 <b>{title}</b>\n\n💸 Готуйте гаманці, сталкери!\n👉 <a href='{link}'>Читати детальніше</a>"
+
+            for chat_id in all_chats.keys():
+                try:
+                    await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML)
+                except Exception as e:
+                    logger.error(f"Не удалось отправить в чат {chat_id}: {e}")
+        else:
+            # Если новость не про скидки, просто запоминаем её ID, чтобы не проверять снова
+            redis.set(STEAM_LAST_ID_KEY, entry_id)
+            logger.info(f"Новость '{title}' пропущена (не про скидки).")
+
+    except Exception as e:
+        logger.error(f"Ошибка при проверке Steam: {e}")
+
+# --- Ежедневные сообщения ---
 async def send_evening_message(context: ContextTypes.DEFAULT_TYPE):
     if not EVENING_GIF_IDS: return
     try:
         all_chats = redis.hgetall(SCORES_KEY)
         if not all_chats: return
-        # Пока просто текст, потом заменим на анекдоты
         text = "Добрий вечір, спільнота! Як у вас з ПОТУЖНІСТЮ?"
         for chat_id in all_chats.keys():
             try:
@@ -146,7 +193,6 @@ async def send_morning_message(context: ContextTypes.DEFAULT_TYPE):
     try:
         all_chats = redis.hgetall(SCORES_KEY)
         if not all_chats: return
-        # Пока просто текст, потом заменим на анекдоты
         text = "Добрий ранок! Перевірка ПОТУЖНОСТІ."
         for chat_id in all_chats.keys():
             try:
@@ -158,7 +204,6 @@ async def send_morning_message(context: ContextTypes.DEFAULT_TYPE):
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     score = load_scores(chat_id)
-    # Только счет, без рангов
     await update.message.reply_text(
         f"📊 <b>Потужність спільноти:</b> <code>{score}</code>",
         parse_mode=ParseMode.HTML
@@ -213,7 +258,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
     chat_id = str(update.message.chat_id) 
 
-    # 1. ОТВЕТ НА РЕПЛАЙ БОТУ (СЛУЧАЙНЫЕ ФРАЗЫ)
+    # 1. ОТВЕТ НА РЕПЛАЙ
     if update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id:
         try:
             random_phrase = random.choice(BOT_REPLY_PHRASES)
@@ -223,11 +268,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception: pass
 
-    # 2. ЛОГИКА СЧЕТА (+/-)
+    # 2. ИГРА +/-
     if not update.message.text: return
     message_text = update.message.text.strip()
 
-    # Ищем число в начале или после пробела
     match = re.search(r'(?:^|\s)([+-])\s*(\d+)', message_text)
     
     if match:
@@ -253,13 +297,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return 
 
-        # ЧЕСТНАЯ МАТЕМАТИКА (без рулетки)
         current_score = load_scores(chat_id) 
         new_score = current_score + value if operator == '+' else current_score - value
         
-        # Выбор гифки
         if operator == '+':
-            if value < 0: # На случай глюка, но тут такого не будет
+            if value < 0: 
                 gif_id = random.choice(NEGATIVE_GIF_IDS)
             else:
                 gif_id = random.choice(POSITIVE_GIF_IDS)
@@ -286,8 +328,14 @@ def main_bot():
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     
     UKRAINE_TZ = pytz.timezone('Europe/Kyiv')
+    
+    # 🕒 Ежедневные рассылки
     application.job_queue.run_daily(send_evening_message, time=datetime.time(20, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
     application.job_queue.run_daily(send_morning_message, time=datetime.time(8, 0, tzinfo=UKRAINE_TZ), days=(0, 1, 2, 3, 4, 5, 6))
+    
+    # 🎮 ПРОВЕРКА STEAM (каждый час = 3600 секунд)
+    # Первый запуск через 60 секунд после старта
+    application.job_queue.run_repeating(check_steam_sales, interval=3600, first=60)
 
     print("Бот 'ПОТУЖНИЙ' запущен...")
     application.run_polling()
