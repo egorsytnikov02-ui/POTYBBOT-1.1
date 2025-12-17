@@ -16,7 +16,8 @@ from upstash_redis import Redis
 from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, ContextTypes, filters
 from telegram.constants import ParseMode
-from telegram.error import BadRequest, Forbidden, MigratedChatError
+# 👇 ИСПРАВЛЕНО: ChatMigrated вместо MigratedChatError
+from telegram.error import BadRequest, Forbidden, ChatMigrated
 
 # --- 1. Настройка логирования ---
 class TokenFilter(logging.Filter):
@@ -132,7 +133,8 @@ async def safe_send(context, chat_id, text=None, animation=None):
         else:
             await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML)
     
-    except MigratedChatError as e:
+    # 👇 ИСПРАВЛЕНО: ChatMigrated
+    except ChatMigrated as e:
         new_id = str(e.new_chat_id)
         logger.info(f"🔄 Миграция чата: {chat_id} -> {new_id}")
         old_score = redis.hget(SCORES_KEY, chat_id)
@@ -248,7 +250,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     score = load_scores(chat_id)
     await update.message.reply_text(f"📊 <b>Потужність спільноти:</b> <code>{score}</code>", parse_mode=ParseMode.HTML)
 
-# 🔥 НОВАЯ КОМАНДА ADMIN 🔥
+# 🔥 КОМАНДА ADMIN
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     try:
@@ -282,7 +284,8 @@ async def gif_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     try:
         member = await update.effective_chat.get_member(user.id)
-        if member.status not in ['creator', 'administrator']: return
+        if member.status not in ['creator', 'administrator']:
+            return
     except Exception: return
     
     context.bot_data['gif_mode'] = not context.bot_data.get('gif_mode', False)
@@ -337,7 +340,7 @@ def main_bot():
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("reset", reset_command))
     application.add_handler(CommandHandler("gifmode", gif_mode_command))
-    application.add_handler(CommandHandler("admin", admin_command)) # 👈 Зарегистрировали команду
+    application.add_handler(CommandHandler("admin", admin_command)) 
     application.add_handler(MessageHandler(filters.ANIMATION, get_gif_id))
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     
@@ -349,7 +352,7 @@ def main_bot():
     application.job_queue.run_repeating(check_steam_sales, interval=3600, first=60)
     application.job_queue.run_repeating(check_epic_free_games, interval=3600, first=90)
 
-    print("🚀 Бот запущен (с админкой)...")
+    print("🚀 Бот запущен (с исправлениями)...")
     application.run_polling()
 
 if __name__ == '__main__':
