@@ -5,7 +5,7 @@ import datetime
 import pytz
 import random
 import feedparser
-import requests  # 👈 Новая библиотека для Epic Games
+import requests
 
 from threading import Thread
 from flask import Flask
@@ -16,6 +16,7 @@ from upstash_redis import Redis
 from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, ContextTypes, filters
 from telegram.constants import ParseMode
+from telegram.error import BadRequest, Forbidden, MigratedChatError
 
 # --- 1. Настройка логирования ---
 class TokenFilter(logging.Filter):
@@ -47,7 +48,7 @@ except Exception as e:
     logger.error(f"❌ Помилка Redis: {e}")
     exit()
 
-# --- 4. Веб-сервер (Waitress) ---
+# --- 4. Веб-сервер ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -61,7 +62,6 @@ def run_web_server():
 # --- 5. Константы ---
 SCORES_KEY = "potuzhniy_scores"
 
-# Константы STEAM
 STEAM_LAST_ID_KEY = "steam_last_news_id"
 STEAM_RSS_URL = "https://store.steampowered.com/feeds/news.xml"
 STEAM_KEYWORDS = [
@@ -69,12 +69,9 @@ STEAM_KEYWORDS = [
     'знижки', 'розпродаж', 'deal', 'save', 'midweek', 'weekend', 'choice'
 ]
 
-# Константы EPIC GAMES
 EPIC_LAST_ID_KEY = "epic_last_giveaway_id"
-# API для поиска бесплатных игр именно в EGS
 EPIC_API_URL = "https://www.gamerpower.com/api/giveaways?platform=epic-games-store&type=game&sort-by=date"
 
-# Фразы и Гифки
 BOT_REPLY_PHRASES = [
     "Іди своєю дорогою, сталкер. Тут немає артефактів для тебе.",
     "Ще одне слово, і я тебе в «Холодець» кину.",
@@ -115,7 +112,7 @@ MORNING_GIF_IDS = ['CgACAgQAAyEFAATIovxHAAIDD2kcMy0aLio6iiYYiVEoq0R4xnGnAAJSBwAC
 EVENING_GIF_IDS = ['CgACAgQAAyEFAATIovxHAAIDC2kcMDXYBOfejZRHnUImdDOTWgT_AAItBQACasyUUrsEDYn5dujrNgQ']
 REPLY_TO_BOT_GIF_ID = 'CgACAgIAAyEFAATIovxHAAIBSmkbMaIuOb-D2BxGZdpSf03s1IDcAAJAgwACSL3ZSLtCpogi_5_INgQ'
 
-# --- 6. Вспомогательные функции ---
+# --- 6. Хелперы ---
 def load_scores(chat_id):
     try:
         score = redis.hget(SCORES_KEY, chat_id)
@@ -127,19 +124,46 @@ def save_scores(chat_id, new_score):
         redis.hset(SCORES_KEY, chat_id, str(new_score))
     except Exception: pass
 
-# --- 7. STEAM МОНИТОРИНГ (ТОП-10) ---
+# --- 🤖 Функция "умной" отправки ---
+async def safe_send(context, chat_id, text=None, animation=None):
+    try:
+        if animation:
+            await context.bot.send_animation(chat_id=chat_id, animation=animation, caption=text, parse_mode=ParseMode.HTML)
+        else:
+            await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML)
+    
+    except MigratedChatError as e:
+        new_id = str(e.new_chat_id)
+        logger.info(f"🔄 Миграция чата: {chat_id} -> {new_id}")
+        old_score = redis.hget(SCORES_KEY, chat_id)
+        if old_score:
+            redis.hset(SCORES_KEY, new_id, old_score)
+        redis.hdel(SCORES_KEY, chat_id)
+        try:
+            if animation:
+                await context.bot.send_animation(chat_id=new_id, animation=animation, caption=text, parse_mode=ParseMode.HTML)
+            else:
+                await context.bot.send_message(chat_id=new_id, text=text, parse_mode=ParseMode.HTML)
+        except Exception: pass
+
+    except (BadRequest, Forbidden) as e:
+        logger.info(f"🧹 Удаление мертвого чата {chat_id}: {e}")
+        redis.hdel(SCORES_KEY, chat_id)
+    
+    except Exception as e:
+        logger.error(f"⚠️ Ошибка отправки в {chat_id}: {e}")
+
+# --- 7. STEAM МОНИТОРИНГ ---
 async def check_steam_sales(context: ContextTypes.DEFAULT_TYPE):
-    logger.info("🎮 Проверка Steam (Топ-10)...")
+    logger.info("🎮 Проверка Steam...")
     try:
         feed = feedparser.parse(STEAM_RSS_URL)
         if not feed.entries: return
 
         last_sent_id = redis.get(STEAM_LAST_ID_KEY)
-        
         if not last_sent_id:
             try:
                 redis.set(STEAM_LAST_ID_KEY, feed.entries[0].id)
-                logger.info("Steam: Первый запуск.")
             except IndexError: pass
             return
 
@@ -148,13 +172,8 @@ async def check_steam_sales(context: ContextTypes.DEFAULT_TYPE):
 
         for entry in feed.entries[:10]:
             if entry.id == last_sent_id: break
-            
-            title = entry.title
-            link = entry.link
-            
-            if any(word in title.lower() for word in STEAM_KEYWORDS):
-                logger.info(f"🔥 Steam событие: {title}")
-                found_news.append((title, link))
+            if any(word in entry.title.lower() for word in STEAM_KEYWORDS):
+                found_news.append((entry.title, entry.link))
 
         if found_news:
             all_chats = redis.hgetall(SCORES_KEY)
@@ -162,10 +181,7 @@ async def check_steam_sales(context: ContextTypes.DEFAULT_TYPE):
                 for news_title, news_link in reversed(found_news):
                     text = f"🔥 <b>У Габена нова подія!</b>\n\n🎮 <b>{news_title}</b>\n\n💸 Готуйте гаманці, сталкери!\n👉 <a href='{news_link}'>Читати детальніше</a>"
                     for chat_id in all_chats.keys():
-                        try:
-                            await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML)
-                        except Exception as e:
-                            logger.error(f"Error chat {chat_id}: {e}")
+                        await safe_send(context, chat_id, text=text)
 
         if newest_id != last_sent_id:
             redis.set(STEAM_LAST_ID_KEY, newest_id)
@@ -173,29 +189,20 @@ async def check_steam_sales(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Ошибка проверки Steam: {e}")
 
-# --- 8. EPIC GAMES МОНИТОРИНГ 🆓 ---
+# --- 8. EPIC GAMES МОНИТОРИНГ ---
 async def check_epic_free_games(context: ContextTypes.DEFAULT_TYPE):
-    logger.info("🆓 Проверка Epic Games Store...")
+    logger.info("🆓 Проверка Epic Games...")
     try:
-        # Делаем запрос к API
         response = requests.get(EPIC_API_URL, timeout=10)
         data = response.json()
-        
         if not data: return
 
-        # Берем самую свежую раздачу (она первая в списке)
         latest_giveaway = data[0]
         giveaway_id = str(latest_giveaway.get('id'))
-        title = latest_giveaway.get('title')
-        link = latest_giveaway.get('open_giveaway_url')
         
-        # Проверяем, не отправляли ли уже
         last_sent_id = redis.get(EPIC_LAST_ID_KEY)
-        
-        if last_sent_id == giveaway_id:
-            return # Уже было
+        if last_sent_id == giveaway_id: return
 
-        logger.info(f"🎁 Найден Epic Games Giveaway: {title}")
         redis.set(EPIC_LAST_ID_KEY, giveaway_id)
 
         all_chats = redis.hgetall(SCORES_KEY)
@@ -203,21 +210,18 @@ async def check_epic_free_games(context: ContextTypes.DEFAULT_TYPE):
 
         text = (
             f"🎁 <b>ХАЛЯВА В EPIC GAMES!</b>\n\n"
-            f"🎮 <b>{title}</b>\n\n"
+            f"🎮 <b>{latest_giveaway.get('title')}</b>\n\n"
             f"⚡️ Забирайте поки дають, сталкери! Це безкоштовно.\n"
-            f"👉 <a href='{link}'>ЗАБРАТИ ГРУ</a>"
+            f"👉 <a href='{latest_giveaway.get('open_giveaway_url')}'>ЗАБРАТИ ГРУ</a>"
         )
 
         for chat_id in all_chats.keys():
-            try:
-                await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML)
-            except Exception as e:
-                logger.error(f"Error sending Epic msg to {chat_id}: {e}")
+            await safe_send(context, chat_id, text=text)
 
     except Exception as e:
         logger.error(f"Ошибка проверки Epic Games: {e}")
 
-# --- 9. Утренние/Вечерние сообщения ---
+# --- 9. Утро/Вечер ---
 async def send_evening_message(context: ContextTypes.DEFAULT_TYPE):
     if not EVENING_GIF_IDS: return
     try:
@@ -225,9 +229,7 @@ async def send_evening_message(context: ContextTypes.DEFAULT_TYPE):
         if not all_chats: return
         text = "Добрий вечір, спільнота! Як у вас з ПОТУЖНІСТЮ?"
         for chat_id in all_chats.keys():
-            try:
-                await context.bot.send_animation(chat_id=chat_id, animation=random.choice(EVENING_GIF_IDS), caption=text)
-            except Exception: pass
+            await safe_send(context, chat_id, text=text, animation=random.choice(EVENING_GIF_IDS))
     except Exception: pass
 
 async def send_morning_message(context: ContextTypes.DEFAULT_TYPE):
@@ -237,9 +239,7 @@ async def send_morning_message(context: ContextTypes.DEFAULT_TYPE):
         if not all_chats: return
         text = "Добрий ранок! Перевірка ПОТУЖНОСТІ."
         for chat_id in all_chats.keys():
-            try:
-                await context.bot.send_animation(chat_id=chat_id, animation=random.choice(MORNING_GIF_IDS), caption=text)
-            except Exception: pass
+            await safe_send(context, chat_id, text=text, animation=random.choice(MORNING_GIF_IDS))
     except Exception: pass
 
 # --- 10. Команды ---
@@ -247,6 +247,23 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     score = load_scores(chat_id)
     await update.message.reply_text(f"📊 <b>Потужність спільноти:</b> <code>{score}</code>", parse_mode=ParseMode.HTML)
+
+# 🔥 НОВАЯ КОМАНДА ADMIN 🔥
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    try:
+        member = await update.effective_chat.get_member(user.id)
+        if member.status not in ['creator', 'administrator']:
+            await update.message.reply_text("🚫 Тільки для адмінів!")
+            return
+    except Exception: return
+
+    try:
+        total_chats = redis.hlen(SCORES_KEY)
+        text = f"🤖 <b>СИСТЕМНА ІНФОРМАЦІЯ</b>\n\n📂 <b>Активних чатів:</b> <code>{total_chats}</code>"
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -265,8 +282,7 @@ async def gif_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     try:
         member = await update.effective_chat.get_member(user.id)
-        if member.status not in ['creator', 'administrator']:
-            return
+        if member.status not in ['creator', 'administrator']: return
     except Exception: return
     
     context.bot_data['gif_mode'] = not context.bot_data.get('gif_mode', False)
@@ -277,7 +293,7 @@ async def get_gif_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.bot_data.get('gif_mode', False) and update.message.animation:
         await update.message.reply_text(f"🆔 <b>ID GIF:</b>\n<code>{update.message.animation.file_id}</code>", parse_mode=ParseMode.HTML)
 
-# --- 11. Обработчик сообщений ---
+# --- 11. Обработчик ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
     chat_id = str(update.message.chat_id) 
@@ -321,22 +337,19 @@ def main_bot():
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("reset", reset_command))
     application.add_handler(CommandHandler("gifmode", gif_mode_command))
+    application.add_handler(CommandHandler("admin", admin_command)) # 👈 Зарегистрировали команду
     application.add_handler(MessageHandler(filters.ANIMATION, get_gif_id))
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     
     tz = pytz.timezone('Europe/Kyiv')
     
-    # Задачи по времени
     application.job_queue.run_daily(send_evening_message, time=datetime.time(20, 0, tzinfo=tz), days=(0, 1, 2, 3, 4, 5, 6))
     application.job_queue.run_daily(send_morning_message, time=datetime.time(8, 0, tzinfo=tz), days=(0, 1, 2, 3, 4, 5, 6))
     
-    # Steam каждые 60 минут (3600 сек)
     application.job_queue.run_repeating(check_steam_sales, interval=3600, first=60)
-    
-    # Epic Games каждые 60 минут (3600 сек), смещение на 30 сек
     application.job_queue.run_repeating(check_epic_free_games, interval=3600, first=90)
 
-    print("🚀 Бот запущен (Steam + Epic Games)...")
+    print("🚀 Бот запущен (с админкой)...")
     application.run_polling()
 
 if __name__ == '__main__':
