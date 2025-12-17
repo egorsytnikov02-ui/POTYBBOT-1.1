@@ -6,3 +6,4 @@ APScheduler
 aiogram
 waitress
 feedparser
+requests
