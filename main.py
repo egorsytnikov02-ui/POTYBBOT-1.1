@@ -16,7 +16,6 @@ from upstash_redis import Redis
 from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, ContextTypes, filters
 from telegram.constants import ParseMode
-# 👇 ИСПРАВЛЕНО: ChatMigrated вместо MigratedChatError
 from telegram.error import BadRequest, Forbidden, ChatMigrated
 
 # --- 1. Настройка логирования ---
@@ -64,10 +63,13 @@ def run_web_server():
 SCORES_KEY = "potuzhniy_scores"
 
 STEAM_LAST_ID_KEY = "steam_last_news_id"
-STEAM_RSS_URL = "https://store.steampowered.com/feeds/news.xml"
+# 👇 ИЗМЕНЕНО: Ссылка на официальную группу Steam (чистая лента)
+STEAM_RSS_URL = "https://steamcommunity.com/groups/steam/rss"
+
+# Ключевые слова
 STEAM_KEYWORDS = [
     'sale', 'fest', 'festival', 'promotion', 'summer', 'winter', 'spring', 'autumn', 
-    'знижки', 'розпродаж', 'deal', 'save', 'midweek', 'weekend', 'choice'
+    'знижки', 'розпродаж', 'deal', 'save', 'midweek', 'weekend', 'choice', 'year'
 ]
 
 EPIC_LAST_ID_KEY = "epic_last_giveaway_id"
@@ -133,7 +135,6 @@ async def safe_send(context, chat_id, text=None, animation=None):
         else:
             await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML)
     
-    # 👇 ИСПРАВЛЕНО: ChatMigrated
     except ChatMigrated as e:
         new_id = str(e.new_chat_id)
         logger.info(f"🔄 Миграция чата: {chat_id} -> {new_id}")
@@ -155,25 +156,33 @@ async def safe_send(context, chat_id, text=None, animation=None):
     except Exception as e:
         logger.error(f"⚠️ Ошибка отправки в {chat_id}: {e}")
 
-# --- 7. STEAM МОНИТОРИНГ ---
+# --- 7. STEAM МОНИТОРИНГ (ОБНОВЛЕННЫЙ) ---
 async def check_steam_sales(context: ContextTypes.DEFAULT_TYPE):
-    logger.info("🎮 Проверка Steam...")
+    logger.info("🎮 Проверка Steam (Official Group)...")
     try:
         feed = feedparser.parse(STEAM_RSS_URL)
         if not feed.entries: return
 
         last_sent_id = redis.get(STEAM_LAST_ID_KEY)
+        
+        # Если первый запуск на новой ссылке - просто запоминаем верхнюю, 
+        # но если это распродажа, то можно и рискнуть запостить.
+        # Для безопасности пока просто запомним, чтобы не спамить.
         if not last_sent_id:
             try:
                 redis.set(STEAM_LAST_ID_KEY, feed.entries[0].id)
+                logger.info("Steam: Первый запуск с новой ссылкой.")
             except IndexError: pass
             return
 
         newest_id = feed.entries[0].id
         found_news = []
 
-        for entry in feed.entries[:10]:
+        # 👇 ИЗМЕНЕНО: Проверяем 20 новостей (на всякий случай)
+        for entry in feed.entries[:20]:
             if entry.id == last_sent_id: break
+            
+            # В официальной группе заголовки чище, но проверка не помешает
             if any(word in entry.title.lower() for word in STEAM_KEYWORDS):
                 found_news.append((entry.title, entry.link))
 
@@ -250,7 +259,6 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     score = load_scores(chat_id)
     await update.message.reply_text(f"📊 <b>Потужність спільноти:</b> <code>{score}</code>", parse_mode=ParseMode.HTML)
 
-# 🔥 КОМАНДА ADMIN
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     try:
@@ -352,7 +360,7 @@ def main_bot():
     application.job_queue.run_repeating(check_steam_sales, interval=3600, first=60)
     application.job_queue.run_repeating(check_epic_free_games, interval=3600, first=90)
 
-    print("🚀 Бот запущен (с исправлениями)...")
+    print("🚀 Бот запущен (STEAM URL FIXED)...")
     application.run_polling()
 
 if __name__ == '__main__':
