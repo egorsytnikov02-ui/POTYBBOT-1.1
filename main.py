@@ -4,7 +4,7 @@ import re
 import datetime
 import pytz
 import random
-import requests # Библиотека для запросов к API
+import requests
 
 from threading import Thread
 from flask import Flask
@@ -63,11 +63,10 @@ SCORES_KEY = "potuzhniy_scores"
 USERS_KEY = "potuzhniy_unique_users"
 
 # Настройки для Дайджеста
-STEAM_API_URL = "https://store.steampowered.com/api/featuredcategories?CC=UA&l=ukrainian" # Цены в гривнах, язык укр
+STEAM_API_URL = "https://store.steampowered.com/api/featuredcategories?CC=UA&l=ukrainian"
 EPIC_API_URL = "https://www.gamerpower.com/api/giveaways?platform=epic-games-store&type=game&sort-by=date"
-SEEN_GAME_TTL = 60 * 60 * 24 * 7 # 7 дней помнить игру, чтобы не повторять
+SEEN_GAME_TTL = 60 * 60 * 24 * 7 # 7 дней
 
-# Фразы для ответов
 BOT_REPLY_PHRASES = [
     "Іди своєю дорогою, сталкер. Тут немає артефактів для тебе.",
     "Ще одне слово, і я тебе в «Холодець» кину.",
@@ -86,7 +85,6 @@ BOT_REPLY_PHRASES = [
     "Це провокація! Я буду скаржитись в ООН (але їм пофіг)."
 ]
 
-# Гифки (только для игровых очков)
 POSITIVE_GIF_IDS = [
     'CgACAgIAAyEFAATIovxHAAIDDWkcMy0m8C5AL5UW9vaBZ0JIUHhsAAJkhwACYjrZSAOnzOZuDDU6NgQ',
     'CgACAgQAAyEFAATIovxHAAIDEmkcMy1wQjRBAluj_AXzdQPqkVd0AALZCwACRO1JUBTOazJVNz4lNgQ',
@@ -143,35 +141,30 @@ def compile_digest():
     digest_parts = []
     has_content = False
 
-    # 1. STEAM: Ищем топ скидки (без повторов)
+    # 1. STEAM
     try:
         response = requests.get(STEAM_API_URL, timeout=10)
         data = response.json()
         
-        # Раздел "specials" (Скидки)
         specials = data.get('specials', {}).get('items', [])
         found_games = []
         
         for item in specials:
-            if len(found_games) >= 3: break # Берем только топ-3
+            if len(found_games) >= 3: break 
             
             game_id = str(item.get('id'))
             seen_key = f"seen_steam_{game_id}"
             
-            # Проверяем в Redis: была ли эта игра за последние 7 дней?
-            if redis.get(seen_key):
-                continue # Была, пропускаем
+            if redis.get(seen_key): continue 
                 
-            # Если новая:
             name = item.get('name')
             discount = item.get('discount_percent')
-            price = item.get('final_price', 0) / 100 # Цена в копейках
-            currency = "₴" # Предполагаем гривну, так как запросили CC=UA
+            price = item.get('final_price', 0) / 100 
+            currency = "₴" 
             link = f"https://store.steampowered.com/app/{game_id}"
             
             found_games.append(f"• <a href='{link}'>{name}</a>: <b>-{discount}%</b> ({int(price)}{currency})")
             
-            # Запоминаем ID на 7 дней
             redis.setex(seen_key, SEEN_GAME_TTL, "1")
 
         if found_games:
@@ -182,12 +175,11 @@ def compile_digest():
     except Exception as e:
         logger.error(f"Steam Digest Error: {e}")
 
-    # 2. EPIC GAMES: Халява
+    # 2. EPIC GAMES
     try:
         response = requests.get(EPIC_API_URL, timeout=10)
         data = response.json()
         if data:
-            # Берем первую (самую свежую) раздачу
             game = data[0]
             title = game.get('title')
             link = game.get('open_giveaway_url')
@@ -201,12 +193,10 @@ def compile_digest():
     if not has_content:
         return None
 
-    # Сборка сообщения
     header = "🎮 <b>Геймерський дайджест</b>\n\n"
     footer = "\n\n<i>Гарної гри!</i>"
     return header + "\n\n".join(digest_parts) + footer
 
-# Функция рассылки (Запускается по таймеру)
 async def send_daily_digest(context: ContextTypes.DEFAULT_TYPE):
     logger.info("📰 Формирование дайджеста...")
     text = compile_digest()
@@ -244,7 +234,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
-# 🔥 НОВАЯ КОМАНДА: Ручной тест дайджеста 🔥
+# 🔥 НОВАЯ КОМАНДА: /steam 🔥
 async def steam_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     try:
@@ -253,7 +243,7 @@ async def steam_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     except Exception: return
 
-    await update.message.reply_text("📰 <b>Формую тестовий дайджест...</b>", parse_mode=ParseMode.HTML)
+    await update.message.reply_text("📰 <b>Формую тестовий дайджест (Steam/Epic)...</b>", parse_mode=ParseMode.HTML)
     
     text = compile_digest()
     if text:
@@ -338,7 +328,7 @@ def main_bot():
     application.add_handler(CommandHandler("reset", reset_command))
     application.add_handler(CommandHandler("gifmode", gif_mode_command))
     application.add_handler(CommandHandler("admin", admin_command)) 
-    application.add_handler(CommandHandler("testdigest", test_digest_command)) # 👈 Команда для теста
+    application.add_handler(CommandHandler("steam", steam_command)) # 👈 Теперь /steam
     
     application.add_handler(MessageHandler(filters.ANIMATION, get_gif_id))
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
@@ -348,7 +338,7 @@ def main_bot():
     # 📰 Ежедневный дайджест в 10:00 утра
     application.job_queue.run_daily(send_daily_digest, time=datetime.time(10, 0, tzinfo=tz), days=(0, 1, 2, 3, 4, 5, 6))
 
-    print("🚀 Бот запущен (Режим: Геймерский Дайджест)...")
+    print("🚀 Бот запущен (Режим: Геймерский Дайджест v2)...")
     application.run_polling()
 
 if __name__ == '__main__':
