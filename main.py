@@ -63,9 +63,14 @@ SCORES_KEY = "potuzhniy_scores"
 USERS_KEY = "potuzhniy_unique_users"
 
 # Настройки для Дайджеста
-STEAM_API_URL = "https://store.steampowered.com/api/featuredcategories?CC=UA&l=ukrainian"
+STEAM_FEATURED_URL = "https://store.steampowered.com/api/featuredcategories?CC=UA&l=ukrainian"
+STEAM_DETAILS_URL = "https://store.steampowered.com/api/appdetails"
 EPIC_API_URL = "https://www.gamerpower.com/api/giveaways?platform=epic-games-store&type=game&sort-by=date"
-SEEN_GAME_TTL = 60 * 60 * 24 * 7 # 7 дней
+SEEN_GAME_TTL = 60 * 60 * 24 * 7 
+
+# 🔥 ВСТАВЬ СЮДА ССЫЛКУ НА СВОЮ КАРТИНКУ 🔥
+# Это может быть URL (https://...) или File_ID телеграма
+DIGEST_IMAGE_URL = "https://cdn.akamai.steamstatic.com/steam/apps/1091500/header.jpg" 
 
 BOT_REPLY_PHRASES = [
     "Іди своєю дорогою, сталкер. Тут немає артефактів для тебе.",
@@ -117,10 +122,12 @@ def save_scores(chat_id, new_score):
         redis.hset(SCORES_KEY, chat_id, str(new_score))
     except Exception: pass
 
-async def safe_send(context, chat_id, text=None, animation=None):
+async def safe_send(context, chat_id, text=None, animation=None, photo=None):
     try:
         if animation:
             await context.bot.send_animation(chat_id=chat_id, animation=animation, caption=text, parse_mode=ParseMode.HTML)
+        elif photo:
+            await context.bot.send_photo(chat_id=chat_id, photo=photo, caption=text, parse_mode=ParseMode.HTML)
         else:
             await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     except ChatMigrated as e:
@@ -130,22 +137,23 @@ async def safe_send(context, chat_id, text=None, animation=None):
         redis.hdel(SCORES_KEY, chat_id)
         try:
             if animation: await context.bot.send_animation(chat_id=new_id, animation=animation, caption=text, parse_mode=ParseMode.HTML)
+            elif photo: await context.bot.send_photo(chat_id=new_id, photo=photo, caption=text, parse_mode=ParseMode.HTML)
             else: await context.bot.send_message(chat_id=new_id, text=text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
         except Exception: pass
     except (BadRequest, Forbidden):
         redis.hdel(SCORES_KEY, chat_id)
     except Exception: pass
 
-# --- 7. ЛОГИКА ДАЙДЖЕСТА (Геймерская сводка) ---
+# --- 7. ЛОГИКА ДАЙДЖЕСТА (v4: Статичная картинка) ---
 def compile_digest():
     digest_parts = []
     has_content = False
-
+    
     # 1. STEAM
     try:
-        response = requests.get(STEAM_API_URL, timeout=10)
+        # Этап 1: Список
+        response = requests.get(STEAM_FEATURED_URL, timeout=10)
         data = response.json()
-        
         specials = data.get('specials', {}).get('items', [])
         found_games = []
         
@@ -156,16 +164,30 @@ def compile_digest():
             seen_key = f"seen_steam_{game_id}"
             
             if redis.get(seen_key): continue 
+            
+            # Этап 2: Детали
+            try:
+                details_resp = requests.get(f"{STEAM_DETAILS_URL}?appids={game_id}&cc=UA", timeout=5)
+                details_data = details_resp.json()
                 
-            name = item.get('name')
-            discount = item.get('discount_percent')
-            price = item.get('final_price', 0) / 100 
-            currency = "₴" 
-            link = f"https://store.steampowered.com/app/{game_id}"
-            
-            found_games.append(f"• <a href='{link}'>{name}</a>: <b>-{discount}%</b> ({int(price)}{currency})")
-            
-            redis.setex(seen_key, SEEN_GAME_TTL, "1")
+                if not details_data.get(game_id, {}).get('success'): continue
+                
+                game_data = details_data[game_id]['data']
+                price_overview = game_data.get('price_overview', {})
+                
+                if not price_overview.get('discount_percent'): continue
+
+                name = game_data['name']
+                discount = price_overview['discount_percent']
+                final_price_formatted = price_overview['final_formatted']
+                link = f"https://store.steampowered.com/app/{game_id}"
+                
+                found_games.append(f"• <a href='{link}'>{name}</a>: <b>-{discount}%</b> ({final_price_formatted})")
+                redis.setex(seen_key, SEEN_GAME_TTL, "1")
+                
+            except Exception as e:
+                logger.error(f"Error getting details for game {game_id}: {e}")
+                continue
 
         if found_games:
             steam_text = "📉 <b>Топ знижок у Steam:</b>\n" + "\n".join(found_games)
@@ -183,33 +205,36 @@ def compile_digest():
             game = data[0]
             title = game.get('title')
             link = game.get('open_giveaway_url')
-            
             epic_text = f"🎁 <b>Роздача Epic Games:</b>\n• <a href='{link}'>{title}</a> (Безкоштовно)"
             digest_parts.append(epic_text)
             has_content = True
+
     except Exception as e:
         logger.error(f"Epic Digest Error: {e}")
 
     if not has_content:
-        return None
+        return None, None
 
     header = "🎮 <b>Геймерський дайджест</b>\n\n"
     footer = "\n\n<i>Гарної гри!</i>"
-    return header + "\n\n".join(digest_parts) + footer
+    full_text = header + "\n\n".join(digest_parts) + footer
+    
+    # Возвращаем Текст и ТУ САМУЮ КАРТИНКУ
+    return full_text, DIGEST_IMAGE_URL
 
 async def send_daily_digest(context: ContextTypes.DEFAULT_TYPE):
     logger.info("📰 Формирование дайджеста...")
-    text = compile_digest()
+    text, image_url = compile_digest()
     
     if not text:
-        logger.info("Дайджест пуст (нет новых скидок или ошибка).")
+        logger.info("Дайджест пуст.")
         return
 
     all_chats = redis.hgetall(SCORES_KEY)
     if not all_chats: return
 
     for chat_id in all_chats.keys():
-        await safe_send(context, chat_id, text=text)
+        await safe_send(context, chat_id, text=text, photo=image_url)
 
 # --- 8. КОМАНДЫ ---
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -234,7 +259,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
-# 🔥 НОВАЯ КОМАНДА: /steam 🔥
+# 🔥 КОМАНДА /steam 🔥
 async def steam_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     try:
@@ -243,11 +268,15 @@ async def steam_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     except Exception: return
 
-    await update.message.reply_text("📰 <b>Формую тестовий дайджест (Steam/Epic)...</b>", parse_mode=ParseMode.HTML)
+    await update.message.reply_text("📰 <b>Формую тестовий дайджест...</b>", parse_mode=ParseMode.HTML)
     
-    text = compile_digest()
+    text, image_url = compile_digest()
+    
     if text:
-        await update.message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        if image_url:
+             await update.message.reply_photo(photo=image_url, caption=text, parse_mode=ParseMode.HTML)
+        else:
+             await update.message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     else:
         await update.message.reply_text("❌ Дайджест пустий (або помилка API).", parse_mode=ParseMode.HTML)
 
@@ -328,7 +357,7 @@ def main_bot():
     application.add_handler(CommandHandler("reset", reset_command))
     application.add_handler(CommandHandler("gifmode", gif_mode_command))
     application.add_handler(CommandHandler("admin", admin_command)) 
-    application.add_handler(CommandHandler("steam", steam_command)) # 👈 Теперь /steam
+    application.add_handler(CommandHandler("steam", steam_command))
     
     application.add_handler(MessageHandler(filters.ANIMATION, get_gif_id))
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
@@ -338,7 +367,7 @@ def main_bot():
     # 📰 Ежедневный дайджест в 10:00 утра
     application.job_queue.run_daily(send_daily_digest, time=datetime.time(10, 0, tzinfo=tz), days=(0, 1, 2, 3, 4, 5, 6))
 
-    print("🚀 Бот запущен (Режим: Геймерский Дайджест v2)...")
+    print("🚀 Бот запущен (Дайджест v4: Статичное фото)...")
     application.run_polling()
 
 if __name__ == '__main__':
