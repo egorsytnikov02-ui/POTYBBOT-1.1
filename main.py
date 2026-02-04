@@ -245,7 +245,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Error: {e}")
 
 # 🔥 НОВАЯ КОМАНДА: Ручной тест дайджеста 🔥
-async def test_digest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def steam_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     try:
         member = await update.effective_chat.get_member(user.id)
