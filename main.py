@@ -70,7 +70,7 @@ SEEN_GAME_TTL = 60 * 60 * 24 * 7
 
 # 🔥 ВСТАВЬ СЮДА ССЫЛКУ НА СВОЮ КАРТИНКУ 🔥
 # Это может быть URL (https://...) или File_ID телеграма
-DIGEST_IMAGE_URL = "https://cdn.akamai.steamstatic.com/steam/apps/1091500/header.jpg" 
+DIGEST_IMAGE_URL = "https://i.redd.it/the-origin-of-dog-closing-eyes-meme-yakuza-3-v0-txfwdc8oi2ve1.jpg?width=567&format=pjpg&auto=webp&s=0b51ed14c2acfbeed5e54329f158187a8e881e32" 
 
 BOT_REPLY_PHRASES = [
     "Іди своєю дорогою, сталкер. Тут немає артефактів для тебе.",
