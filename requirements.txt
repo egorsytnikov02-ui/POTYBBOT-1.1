@@ -1,9 +1,6 @@
-python-telegram-bot[jobqueue]
+python-telegram-bot[job-queue]
 flask
-pytz
-upstash-redis
-APScheduler
-aiogram
 waitress
-feedparser
+upstash-redis
 requests
+pytz
